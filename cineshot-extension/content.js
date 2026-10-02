@@ -165,38 +165,22 @@
     let success = false;
     let responseMsg = '';
 
-    // Step A: Send to Railway Cloud API
+    // Send via privileged Background Service Worker (100% immune to webpage CSP & CORS!)
     try {
-      const resp = await fetch(PRIMARY_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      const response = await new Promise((resolve) => {
+        chrome.runtime.sendMessage(
+          { type: 'INGEST_VIDEO', payload: payload },
+          (res) => resolve(res || { success: false, error: '擴充功能後台連線超時' })
+        );
       });
-      if (resp.ok) {
-        const data = await resp.json();
+      if (response && response.success) {
         success = true;
-        responseMsg = data.message || '已成功送入 CineShot 雲端拉片隊列！';
+        responseMsg = response.message || '已成功送入 CineShot 雲端拉片隊列！';
+      } else {
+        console.warn('[CineShot Content] 收錄失敗:', response && response.error);
       }
-    } catch (e) {
-      console.warn('[CineShot] Railway API 未直達，嘗試本機 API...', e);
-    }
-
-    // Step B: Fallback to local server if railway fails
-    if (!success) {
-      try {
-        const respLocal = await fetch(LOCAL_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (respLocal.ok) {
-          const data = await respLocal.json();
-          success = true;
-          responseMsg = data.message || '已成功送入本機 CineShot 拉片隊列！';
-        }
-      } catch (err) {
-        console.error('[CineShot] 連線失敗:', err);
-      }
+    } catch (err) {
+      console.error('[CineShot Content] 擴充通訊失敗:', err);
     }
 
     if (success) {

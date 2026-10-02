@@ -504,48 +504,113 @@ function returnToCleanHome() {
   cleanSearchInput.focus();
 }
 
+// Cinematic Semantic Synonyms & Visual Language Dictionary
+const CINEMATIC_SYNONYMS = {
+  // 動作 / 微動作
+  '跳舞': ['跳舞', '舞蹈', '舞步', '街舞', '碎步', '舞動', '韻律', '律動', 'dance', 'dancing'],
+  '舞蹈': ['跳舞', '舞蹈', '舞步', '街舞', '碎步', '舞動', '韻律', '律動', 'dance', 'dancing'],
+  '打架': ['打架', '交手', '對打', '打鬥', '格鬥', '肉搏', '對峙', '交鋒', '拳擊', '武術', 'fight', 'combat', 'boxing'],
+  '格鬥': ['打架', '交手', '對打', '打鬥', '格鬥', '肉搏', '對峙', '交鋒', '拳擊', '武術', 'fight', 'combat', 'boxing'],
+  '交手': ['打架', '交手', '對打', '打鬥', '格鬥', '肉搏', '對峙', '交鋒', '拳擊', '武術', 'fight', 'combat', 'boxing'],
+  '跑步': ['跑', '跑步', '奔跑', '衝刺', '慢跑', '踏步', '田徑', '跑道', '跨步', 'run', 'running', 'sprint'],
+  '奔跑': ['跑', '跑步', '奔跑', '衝刺', '慢跑', '踏步', '田徑', '跑道', '跨步', 'run', 'running', 'sprint'],
+  '開車': ['車', '汽車', '跑車', '夜馳', '老車', '奔馳', '漂移', '馳騁', '駕駛', '開車', '甩尾', 'car', 'drive', 'driving'],
+  '車': ['車', '汽車', '跑車', '夜馳', '老車', '奔馳', '漂移', '馳騁', '駕駛', '開車', '甩尾', 'car', 'drive', 'driving'],
+  '球': ['球', '傳球', '投籃', '運球', '踢球', '拋球', '轉球', '控球', '持球', '假動作', '橄欖球', '籃球', '足球', 'ball'],
+  '傳球': ['球', '傳球', '投籃', '運球', '踢球', '拋球', '轉球', '控球', '持球', '假動作', '橄欖球', 'ball'],
+  '鞋': ['鞋', '跑鞋', '球鞋', '鞋帶', '鞋底', '碳板', '織網', 'shoes', 'sneaker'],
+  '牽手': ['牽手', '牽', '手牽手', '握手', '相扣', '拉手', '手', 'hand', 'hands'],
+  '笑': ['笑', '微笑', '笑容', '大笑', '開心', '放鬆', '幽默', 'smile', 'laugh'],
+  '哭': ['哭', '流淚', '眼淚', '哭泣', '悲傷', '難過', 'cry', 'tear', 'tears'],
+
+  // 視聽運鏡 (Camera Motion)
+  '特寫': ['特寫', '微距', '細節', '面部', '近景', '特写', 'close-up', 'macro', 'detail'],
+  '微距': ['特寫', '微距', '細節', '面部', '近景', '特写', 'close-up', 'macro', 'detail'],
+  '推鏡頭': ['推鏡頭', '推進', '前推', '快推', '變焦', 'dolly in', 'push-in', 'snap zoom'],
+  '拉鏡頭': ['拉鏡頭', '拉遠', '後拉', '拉出', 'dolly out'],
+  '俯拍': ['俯拍', '俯瞰', '頂置', '頂光', '上帝視角', '垂直', 'top-down', 'overhead'],
+  '仰拍': ['仰拍', '低角度', '貼地', '仰望', 'low-angle'],
+  '環繞': ['環繞', '旋轉', '環形', '360', 'orbit', 'arc shot'],
+  '跟拍': ['跟拍', '手持', '跟隨', '滑軌', '追隨', '呼吸感', 'follow'],
+
+  // 光影 (Lighting)
+  '逆光': ['逆光', '輪廓光', '背光', '邊緣光', '剪影', 'rim light', 'backlight'],
+  '柔光': ['柔光', '漫射', '自然光', '清透', '散射光', '均勻', 'soft light'],
+  '硬光': ['硬光', '高對比', '雕刻光', '直射光', '硬朗', 'hard light'],
+  '暗調': ['暗調', '低調', '陰暗', '神秘', '壓抑', '火花', 'low-key', 'dark'],
+
+  // 色彩調色 (Color Tone)
+  '復古': ['復古', '膠片', '膠卷', '柯達', '顆粒', '35mm', 'vintage', 'retro', 'film'],
+  '膠片': ['復古', '膠片', '膠卷', '柯達', '顆粒', '35mm', 'vintage', 'retro', 'film']
+};
+
+function expandQueryWords(query) {
+  if (!query) return [];
+  const qClean = query.toLowerCase().trim();
+  const wordsSet = new Set([qClean]);
+
+  // 1. Direct synonym lookup & partial match
+  for (const [key, synonyms] of Object.entries(CINEMATIC_SYNONYMS)) {
+    if (qClean.includes(key) || key.includes(qClean) || synonyms.some(s => qClean.includes(s) || s.includes(qClean))) {
+      synonyms.forEach(s => wordsSet.add(s.toLowerCase()));
+    }
+  }
+
+  // 2. Chinese 2-character action root extraction (e.g. "跳舞" -> root "舞")
+  if (qClean.length >= 2) {
+    for (let i = 0; i < qClean.length; i++) {
+      const char = qClean[i];
+      if ('舞跑打車球鞋笑哭走跳拍光飛影'.includes(char)) {
+        wordsSet.add(char);
+      }
+    }
+  }
+
+  return Array.from(wordsSet);
+}
+
+function clipMatchesQuery(clip, expandedWords, originalQuery) {
+  if (!originalQuery) return true;
+  const qLower = originalQuery.toLowerCase();
+
+  // Combine ALL metadata fields into rich searchable haystack
+  const haystack = [
+    clip.title,
+    clip.client,
+    clip.actionTag,
+    clip.motion,
+    clip.lighting,
+    clip.colorTone,
+    clip.mood,
+    clip.director,
+    clip.notes,
+    clip.sourceUrl,
+    ...(clip.queryMatch || [])
+  ].filter(Boolean).join(' ').toLowerCase();
+
+  // Direct substring of original query
+  if (haystack.includes(qLower)) return true;
+
+  // Any of expanded synonym words
+  for (const word of expandedWords) {
+    if (word && haystack.includes(word)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 // Execute Search & Dynamic Filtering
 function performSearch(query) {
   const q = (query !== undefined ? query : navSearchInput.value || '').trim();
   currentQuery = q;
 
-  // 1. Filter clips by query
+  const expandedWords = expandQueryWords(q);
+
+  // 1. Filter clips by query & synonyms across all metadata
   filteredClips = allClips.filter(clip => {
-    let matchQuery = true;
-    if (q) {
-      const qLower = q.toLowerCase();
-      const inTitle = (clip.title || '').toLowerCase().includes(qLower);
-      const inClient = (clip.client || '').toLowerCase().includes(qLower);
-      const inAction = (clip.actionTag || '').toLowerCase().includes(qLower);
-      const inMood = (clip.mood || '').toLowerCase().includes(qLower);
-      const inTags = clip.queryMatch && clip.queryMatch.some(tag => tag.toLowerCase().includes(qLower) || qLower.includes(tag.toLowerCase()));
-
-      const isCombat = ['交手', '對打', '打鬥', '格鬥', '肉搏', '對峙', '交鋒', '拳擊', '武術', '对打', '打斗', '格斗', '对峙', '交锋', '拳击', '武术', 'combat', 'fight', 'boxing', 'duel'].some(w => qLower.includes(w));
-      const isHoldingHands = ['牽手', '手牽手', '相扣', '握手', '牵手', '手牵手', 'hand', 'hands', 'holding hands', 'hold hands'].some(w => qLower.includes(w));
-      const isCar = ['車', '汽車', '跑車', '夜馳', '老車', '奔馳', '车', '汽车', '跑车', '夜驰', '老车', '奔驰', 'car', 'vehicle', 'drive', 'driving'].some(w => qLower.includes(w));
-      const isStoryboard = ['分鏡', '手稿', '繪圖', '導演', '架構', '分镜', '绘图', '导演', '架构', 'storyboard', 'sketch', 'drawing'].some(w => qLower.includes(w));
-      const isCoke = ['可樂', '可乐', 'coke', 'drink', '開罐', '开罐', 'open can'].some(w => qLower.includes(w));
-      const isEngineer = ['工程師', '工程师', 'engineer', 'developer'].some(w => qLower.includes(w));
-      const isSunset = ['黃昏', '黄昏', '日落', '夕陽', 'sunset'].some(w => qLower.includes(w));
-
-      if (isCombat) {
-        matchQuery = clip.queryMatch && clip.queryMatch.includes('交手');
-      } else if (isHoldingHands) {
-        matchQuery = clip.queryMatch && clip.queryMatch.includes('牽手');
-      } else if (isCar) {
-        matchQuery = clip.queryMatch && (clip.queryMatch.includes('車') || clip.queryMatch.includes('汽車'));
-      } else if (isStoryboard) {
-        matchQuery = clip.queryMatch && clip.queryMatch.includes('手稿');
-      } else if (isCoke) {
-        matchQuery = clip.queryMatch && (clip.queryMatch.includes('可口可樂') || clip.queryMatch.includes('開罐'));
-      } else if (isEngineer) {
-        matchQuery = clip.queryMatch && clip.queryMatch.includes('工程師');
-      } else if (isSunset) {
-        matchQuery = clip.queryMatch && (clip.queryMatch.includes('黃昏') || clip.queryMatch.includes('夕陽'));
-      } else {
-        matchQuery = inTitle || inClient || inAction || inMood || inTags;
-      }
-    }
+    const matchQuery = clipMatchesQuery(clip, expandedWords, q);
 
     // 2. Filter Dimensions
     const matchCategory = activeFilters.category === '全部' || clip.category === activeFilters.category;
@@ -640,10 +705,10 @@ function renderVideoGrid(query) {
       <div class="video-frame-wrap" title="點擊檢視視聽語言參數">
         <video 
           class="shot-card-video" 
-          src="${clip.previewUrl}" 
+          src="${clip.previewUrl}#t=${clip.startTime || 0},${clip.endTime || 5}" 
           playsinline 
           muted 
-          preload="auto"
+          preload="metadata"
         ></video>
 
         <div class="overlay-top-tags">
@@ -679,29 +744,27 @@ function renderVideoGrid(query) {
       </div>
     `;
 
-    // Video Timecode Control Loop (Ensures exact start to end playback)
+    // Video Timecode Control Loop (Smooth & zero seek loop storm)
     const video = card.querySelector('.shot-card-video');
     const frameWrap = card.querySelector('.video-frame-wrap');
     const start = clip.startTime || 0;
     const end = clip.endTime || 5;
 
-    video.addEventListener('loadedmetadata', () => {
-      video.currentTime = start;
-    });
-
     video.addEventListener('timeupdate', () => {
-      if (video.currentTime >= end || video.currentTime < start) {
+      if (video.currentTime >= end) {
         video.currentTime = start;
       }
     });
 
     frameWrap.addEventListener('mouseenter', () => {
+      if (video.currentTime < start || video.currentTime >= end) {
+        video.currentTime = start;
+      }
       video.play().catch(() => {});
     });
 
     frameWrap.addEventListener('mouseleave', () => {
       video.pause();
-      video.currentTime = start;
     });
 
     frameWrap.addEventListener('click', (e) => {
@@ -759,7 +822,7 @@ function updateCanvasUI() {
     itemEl.innerHTML = `
       <span class="canvas-card-num">#${String(index + 1).padStart(2, '0')}</span>
       <div class="canvas-card-thumb">
-        <video src="${item.previewUrl}" muted loop autoplay playsinline></video>
+        <video src="${item.previewUrl}#t=${item.startTime || 0},${item.endTime || 5}" muted loop autoplay playsinline preload="metadata"></video>
       </div>
       <div class="canvas-card-meta">
         <span class="canvas-card-title">${item.title}</span>
@@ -771,9 +834,8 @@ function updateCanvasUI() {
     const v = itemEl.querySelector('video');
     const start = item.startTime || 0;
     const end = item.endTime || 5;
-    v.addEventListener('loadedmetadata', () => { v.currentTime = start; });
     v.addEventListener('timeupdate', () => {
-      if (v.currentTime >= end || v.currentTime < start) v.currentTime = start;
+      if (v.currentTime >= end) v.currentTime = start;
     });
 
     itemEl.querySelector('.btn-card-del').addEventListener('click', () => {
@@ -805,7 +867,7 @@ function openDetailModal(clip) {
 
   modalBody.innerHTML = `
     <div style="background: #000; position: relative;">
-      <video id="modalVideoPlayer" src="${clip.previewUrl}" controls autoplay loop playsinline style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
+      <video id="modalVideoPlayer" src="${clip.previewUrl}#t=${start},${end}" controls autoplay loop playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
     </div>
     <div style="padding: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
@@ -842,9 +904,26 @@ function openDetailModal(clip) {
 
   const mv = document.getElementById('modalVideoPlayer');
   if (mv) {
-    mv.currentTime = start;
+    let initialized = false;
+    const startPlayback = () => {
+      if (initialized) return;
+      initialized = true;
+      try {
+        if (Math.abs(mv.currentTime - start) > 0.5) {
+          mv.currentTime = start;
+        }
+        mv.play().catch(() => {});
+      } catch (err) {}
+    };
+
+    mv.addEventListener('loadedmetadata', startPlayback);
+    mv.addEventListener('canplay', startPlayback);
+
+    // Loop strictly when reaching end timecode (Zero seek loop aborts)
     mv.addEventListener('timeupdate', () => {
-      if (mv.currentTime >= end || mv.currentTime < start) mv.currentTime = start;
+      if (mv.currentTime >= end) {
+        mv.currentTime = start;
+      }
     });
   }
 
