@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CineShot (影鏡) | 影視分鏡與視聽語言檢索台</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+
+  <!-- Clean Initial Home State (Centered Google-Style Search) -->
+  <section class="home-hero-clean" id="homeHeroClean">
+    <!-- Language Switcher in Hero Top -->
+    <div class="hero-top-bar">
+      <div class="lang-switch-group" id="langSwitchHero">
+        <button class="lang-btn" data-lang="zh-Hant">繁體中文</button>
+        <button class="lang-btn" data-lang="zh-Hans">简体中文</button>
+        <button class="lang-btn" data-lang="en">English</button>
+      </div>
+    </div>
+
+    <div class="clean-brand">
+      <div class="clean-logo">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+        </svg>
+      </div>
+      <h1 class="clean-title">CineShot <span class="badge-pro">PRO</span></h1>
+      <p class="clean-subtitle" id="cleanSubtitle">影視分鏡與視聽語言微鏡頭檢索台</p>
+    </div>
+
+    <!-- Centered Search Box -->
+    <div class="clean-search-box">
+      <div class="clean-input-wrapper">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input type="text" id="cleanSearchInput" placeholder="輸入你想檢索的畫面動作或意境（例：兩個人在交手、牽手、復古車夜馳...）" autocomplete="off" autofocus>
+        <button class="btn-clean-search" id="btnCleanSearch">
+          <span id="cleanSearchBtnText">開始檢索</span>
+          <kbd>↵</kbd>
+        </button>
+      </div>
+
+      <!-- Quick Exploration Pills -->
+      <div class="clean-pills">
+        <span class="pills-label" id="pillsLabel">熱門靈感：</span>
+        <button class="clean-pill" id="pillCombat" data-query="兩個人在交手">🥊 兩個人在交手</button>
+        <button class="clean-pill" id="pillHands" data-query="牽手">🤝 牽手系列</button>
+        <button class="clean-pill" id="pillCar" data-query="車">🚗 復古老車夜馳</button>
+        <button class="clean-pill" id="pillSketch" data-query="分鏡手稿">📐 導演分鏡手稿</button>
+      </div>
+    </div>
+
+    <div class="clean-footer">
+      <span id="cleanFooterText">本機硬解加速 · 0 延遲播放 · 視聽語言多模態檢索</span>
+    </div>
+  </section>
+
+  <!-- Workspace View (Active when Search is executed) -->
+  <div class="workspace-view" id="workspaceView" style="display: none;">
+
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+      <div class="nav-left">
+        <div class="brand" id="btnReturnHome" title="返回乾淨搜尋頁">
+          <div class="brand-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polygon points="10 8 16 12 10 16 10 8" fill="currentColor"></polygon>
+            </svg>
+          </div>
+          <span class="brand-title">CineShot</span>
+        </div>
+      </div>
+
+      <!-- Search in Navbar -->
+      <div class="nav-search-bar">
+        <div class="search-input-shell">
+          <svg class="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input type="text" id="navSearchInput" placeholder="輸入畫面意境或動作..." autocomplete="off">
+          <button class="btn-clear-search" id="btnClearSearch">✕</button>
+          <button class="btn-exec-search" id="btnNavSearch">檢索</button>
+        </div>
+      </div>
+
+      <div class="nav-right">
+        <div class="lang-switch-group" id="langSwitchNav">
+          <button class="lang-btn" data-lang="zh-Hant">繁</button>
+          <button class="lang-btn" data-lang="zh-Hans">简</button>
+          <button class="lang-btn" data-lang="en">EN</button>
+        </div>
+        <button class="btn-canvas-trigger" id="btnToggleCanvas">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+          </svg>
+          <span id="canvasTriggerText">提案板</span>
+          <span class="canvas-counter" id="canvasCountBadge">0</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace Layout -->
+    <div class="workspace-layout">
+
+      <!-- Left Filter Panel -->
+      <aside class="filter-panel" id="filterSidebar">
+        <div class="panel-section-title">
+          <span id="filterPanelTitle">視聽維度過濾器</span>
+        </div>
+
+        <div class="filter-categories">
+          <!-- 分類 -->
+          <div class="filter-block" data-filter="category">
+            <span class="block-label" id="labelCategory">作品類型</span>
+            <div class="tag-selector" id="groupCategory">
+              <button class="tag-opt active" data-val="全部">全部</button>
+              <button class="tag-opt" data-val="廣告片">廣告片</button>
+              <button class="tag-opt" data-val="宣傳片">宣傳片</button>
+              <button class="tag-opt" data-val="紀錄片">紀錄片</button>
+            </div>
+          </div>
+
+          <!-- 地區 -->
+          <div class="filter-block" data-filter="region">
+            <span class="block-label" id="labelRegion">地區來源</span>
+            <div class="tag-selector" id="groupRegion">
+              <button class="tag-opt active" data-val="全部">全部</button>
+              <button class="tag-opt" data-val="日本">日本</button>
+              <button class="tag-opt" data-val="歐美">歐美</button>
+              <button class="tag-opt" data-val="內地港澳台">港澳台/大陸</button>
+            </div>
+          </div>
+
+          <!-- 畫幅 -->
+          <div class="filter-block" data-filter="aspectRatio">
+            <span class="block-label" id="labelAspect">畫幅規格</span>
+            <div class="tag-selector" id="groupAspect">
+              <button class="tag-opt active" data-val="全部">全部</button>
+              <button class="tag-opt" data-val="橫屏">橫屏 (16:9)</button>
+              <button class="tag-opt" data-val="豎屏">豎屏 (9:16)</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="import-panel">
+          <span class="import-title" id="importTitle">📁 導入本地影片</span>
+          <p class="import-desc" id="importDesc">支援將任意 MP4 拖入即時生成分鏡切片</p>
+          <label class="btn-import-file">
+            <span id="importBtnText">選擇本機 MP4</span>
+            <input type="file" id="localVideoUploader" accept="video/mp4" style="display: none;">
+          </label>
+        </div>
+      </aside>
+
+      <!-- Center Results Stage -->
+      <main class="center-stage">
+        
+        <!-- Dynamic Sub-Actions Bar (Only shows tags relevant to current query!) -->
+        <div class="action-chips-bar">
+          <div class="chips-label">
+            <span class="dot-amber"></span>
+            <span id="chipsBarTitle">情境細分標籤：</span>
+          </div>
+          <div class="chips-container" id="subActionsContainer">
+            <!-- Dynamic tags inserted here -->
+          </div>
+          <div class="results-badge" id="resultsCount">0 個鏡頭</div>
+        </div>
+
+        <!-- Video Grid -->
+        <div class="video-masonry" id="videoGrid">
+          <!-- Injected by app.js -->
+        </div>
+
+      </main>
+
+      <!-- Right Storyboard Canvas Drawer -->
+      <aside class="canvas-panel" id="canvasDrawer">
+        <div class="canvas-panel-header">
+          <div>
+            <h3 id="canvasHeaderTitle">導演分鏡提案板</h3>
+            <span class="canvas-sub" id="canvasHeaderSub">客戶對焦 Treatment</span>
+          </div>
+          <div class="canvas-actions">
+            <button class="btn-text-ghost" id="btnClearCanvas">清空</button>
+            <button class="btn-icon-close" id="btnCloseCanvas">✕</button>
+          </div>
+        </div>
+
+        <div class="canvas-items-list" id="canvasList">
+          <div class="canvas-empty" id="canvasEmptyState">
+            <div class="empty-glyph">🎞️</div>
+            <h4 id="canvasEmptyTitle">尚未收藏分鏡鏡頭</h4>
+            <p id="canvasEmptyDesc">點擊微鏡頭右下角的「+」號<br>將候選鏡頭加入提案板</p>
+          </div>
+        </div>
+
+        <div class="canvas-panel-footer">
+          <div class="canvas-metrics">
+            <span><span id="canvasShotsLabel">收錄鏡頭：</span><strong id="canvasTotalShots">0</strong></span>
+            <span><span id="canvasDurationLabel">預計長度：</span><strong id="canvasTotalDuration">0s</strong></span>
+          </div>
+          <button class="btn-export-treatment" id="btnExportPitch">
+            <span id="btnExportPitchText">一鍵導出客戶提案冊 (PDF / 分享)</span>
+          </button>
+        </div>
+      </aside>
+
+    </div>
+
+  </div>
+
+  <!-- Detail Inspection Modal -->
+  <div class="modal-layer" id="clipModal">
+    <div class="modal-window">
+      <button class="modal-dismiss" id="btnModalClose">✕</button>
+      <div class="modal-content" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
