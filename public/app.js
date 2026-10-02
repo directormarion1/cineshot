@@ -556,13 +556,18 @@ function expandQueryWords(query) {
   const qClean = query.toLowerCase().trim();
   const wordsSet = new Set([qClean]);
 
-  // Direct synonym lookup - only match if query contains or equals a key/synonym
+  // Special single-character semantic intent: '球' strictly means ball sports (NOT shoes!)
+  if (qClean === '球') {
+    ['球', '傳球', '投籃', '運球', '踢球', '拋球', '轉球', '控球', '持球', '籃球', '足球', '橄欖球', 'ball'].forEach(w => wordsSet.add(w));
+    return Array.from(wordsSet);
+  }
+
+  // Direct synonym lookup: Only match if query contains the key or key contains query (for length >= 2)
   for (const [key, synonyms] of Object.entries(CINEMATIC_SYNONYMS)) {
-    // Exact match or query contains the full key (≥2 chars)
-    const keyMatch = (key.length >= 2) ? (qClean.includes(key) || key.includes(qClean)) : (qClean === key);
+    const keyMatch = (qClean === key) || (key.length >= 2 && qClean.length >= 2 && (qClean.includes(key) || key.includes(qClean)));
     const synMatch = synonyms.some(s => {
-      if (s.length < 2) return qClean === s;
-      return qClean.includes(s) || s.includes(qClean);
+      const sLower = s.toLowerCase();
+      return (qClean === sLower) || (sLower.length >= 2 && qClean.length >= 2 && (qClean.includes(sLower) || sLower.includes(qClean)));
     });
 
     if (keyMatch || synMatch) {
@@ -570,15 +575,12 @@ function expandQueryWords(query) {
     }
   }
 
-  // NO single-character root extraction - it causes cross-contamination
-  // (e.g. "籃球" → "球" → matches "橄欖球", which is wrong)
-
   return Array.from(wordsSet);
 }
 
 function clipMatchesQuery(clip, expandedWords, originalQuery) {
   if (!originalQuery) return true;
-  const qLower = originalQuery.toLowerCase();
+  const qLower = originalQuery.toLowerCase().trim();
 
   // Combine ALL metadata fields into rich searchable haystack
   const haystack = [
@@ -594,6 +596,18 @@ function clipMatchesQuery(clip, expandedWords, originalQuery) {
     clip.sourceUrl,
     ...(clip.queryMatch || [])
   ].filter(Boolean).join(' ').toLowerCase();
+
+  // Disambiguation for '球' (Ball Sports) vs '球鞋' (Sneakers/Shoes)
+  if (qLower === '球') {
+    // Strip '球鞋' so clips that only test or mention shoes do not match '球'
+    const pureBallHaystack = haystack.replace(/球鞋/g, '');
+    for (const word of expandedWords) {
+      if (word && word !== '球鞋' && pureBallHaystack.includes(word)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   // Direct substring of original query
   if (haystack.includes(qLower)) return true;

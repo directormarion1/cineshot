@@ -11,6 +11,10 @@ import shutil
 import mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
+import urllib.request
+import threading
+import time
+import re
 
 PORT = int(os.environ.get('PORT', 8765))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -260,7 +264,6 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
             try:
-                import time, threading, re, urllib.request
                 payload = json.loads(body.decode('utf-8'))
                 video_url = payload.get('videoUrl') or payload.get('streamUrl') or payload.get('pageUrl')
                 title = payload.get('title', '精選影視短片')

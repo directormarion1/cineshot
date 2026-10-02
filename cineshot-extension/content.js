@@ -188,40 +188,48 @@
 
     try {
       var response = await new Promise(function (resolve) {
+        var timer = setTimeout(function () {
+          resolve({ success: false, error: '伺服器響應超時' });
+        }, 15000);
+
         chrome.runtime.sendMessage(
           { type: 'INGEST_VIDEO', payload: payload },
-          function (res) { resolve(res || { success: false, error: '擴充功能後台連線超時' }); }
+          function (res) {
+            clearTimeout(timer);
+            resolve(res || { success: false, error: '擴充功能後台連線超時' });
+          }
         );
       });
+
       if (response && response.success) {
         success = true;
         responseMsg = response.message || '已成功送入 CineShot 雲端拉片隊列！';
       }
     } catch (err) {
       console.error('[CineShot] Communication error:', err);
-    }
-
-    if (success) {
-      showToast('success', meta.title, '🎉 ' + responseMsg + '\nGemini 正在後台拉片，約 20 秒後即可檢索！', 5000);
-      if (floatingBtn) {
-        floatingBtn.classList.remove('cs-loading');
-        floatingBtn.classList.add('cs-success');
-        floatingBtn.querySelector('.cs-text').innerText = '已成功收錄！';
-        setTimeout(function () {
-          floatingBtn.classList.remove('cs-success');
-          floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
+    } finally {
+      if (success) {
+        showToast('success', meta.title, '🎉 ' + responseMsg + '\nGemini 正在後台逐幀拉片，約 20 秒後即可檢索！', 5000);
+        if (floatingBtn) {
+          floatingBtn.classList.remove('cs-loading');
+          floatingBtn.classList.add('cs-success');
+          floatingBtn.querySelector('.cs-text').innerText = '已成功收錄！';
+          setTimeout(function () {
+            floatingBtn.classList.remove('cs-success');
+            floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
+            isIngesting = false;
+          }, 3000);
+        } else {
           isIngesting = false;
-        }, 3000);
+        }
       } else {
+        showToast('error', meta.title, (response && response.error) ? ('收錄失敗: ' + response.error) : '無法連線到 CineShot 伺服器，請確認網路連線。', 4500);
+        if (floatingBtn) {
+          floatingBtn.classList.remove('cs-loading');
+          floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
+        }
         isIngesting = false;
       }
-    } else {
-      showToast('error', meta.title, '無法連線到 CineShot 伺服器，請確認網路連線或稍後再試。', 4000);
-      if (floatingBtn) {
-        floatingBtn.classList.remove('cs-loading');
-        floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
-      }
-      isIngesting = false;
     }
   }
 
