@@ -144,10 +144,66 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         # Serve static files
         return super().do_GET()
 
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization')
+        self.end_headers()
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        if path == '/api/ingest':
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                payload = json.loads(body.decode('utf-8'))
+                video_url = payload.get('videoUrl')
+                title = payload.get('title', '新片場精選')
+                client = payload.get('client', '品牌客戶')
+                
+                import threading, re
+                def run_ingest(v_url, v_title, v_client):
+                    try:
+                        import yt_dlp, time
+                        clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
+                        out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
+                        out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
+                        
+                        ydl_opts = {
+                            'outtmpl': out_path,
+                            'quiet': True,
+                            'no_warnings': True,
+                        }
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([v_url])
+                            
+                        from auto_crawler_pipeline import process_single_video
+                        process_single_video(out_path, title=v_title, client=v_client)
+                    except Exception as e:
+                        print(f"[API Ingest Error] {e}")
+
+                threading.Thread(target=run_ingest, args=(video_url, title, client), daemon=True).start()
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'queued', 'message': f'正在為您將《{title}》進行 AI 深度拉片與切片'}).encode('utf-8'))
+                return
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+                return
+
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization')
         super().end_headers()
 
 def run_server():
