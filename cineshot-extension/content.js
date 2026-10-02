@@ -1,54 +1,46 @@
 /**
  * CineShot (影鏡) - Universal 1-Click Video Sniffer & Ingestion Assistant
  * 
- * Works across all major video platforms (Xinpianchang, YouTube, Bilibili, Vimeo, etc.)
- * Provides:
- *  1. Ambient floating gold pill button [ 🎬 存入 CineShot ]
- *  2. Global keyboard shortcut Alt + S (Option + S on macOS)
- *  3. Direct streaming URL sniffing (bypasses WAF on Xinpianchang!)
- *  4. Instant zero-copy cloud ingestion to Railway server & local CineShot
+ * Floating button ONLY appears when:
+ *  - A real <video> element with valid src is playing or visible on the page
+ *  - User presses Alt+S (then button stays visible for rest of session)
+ *  - Page is a known video site AND has video elements
  */
 
 (function () {
   'use strict';
 
-  // Prevent multiple injections in the same frame
   if (window.__cineshot_sniffer_injected) return;
   window.__cineshot_sniffer_injected = true;
 
-  const PRIMARY_API = 'https://web-production-cafae.up.railway.app/api/ingest';
-  const LOCAL_API = 'http://localhost:8765/api/ingest';
-
   // State
-  let isIngesting = false;
-  let floatingBtn = null;
+  var isIngesting = false;
+  var floatingBtn = null;
+  var forceShow = false; // User pressed Alt+S → always show button
 
-  // 1. Toast Notification Utility
-  function showToast(status, title, message, duration = 4000) {
-    let toast = document.getElementById('cineshot-toast');
+  // ─── Toast ────────────────────────────────────────────
+  function showToast(status, title, message, duration) {
+    duration = duration || 4000;
+    var toast = document.getElementById('cineshot-toast');
     if (!toast) {
       toast = document.createElement('div');
       toast.id = 'cineshot-toast';
       document.body.appendChild(toast);
     }
-    toast.className = ''; // remove hide class
+    toast.className = '';
 
-    const icon = status === 'success' ? '✅' : status === 'error' ? '❌' : '🎬';
-    const headerText = status === 'success' ? 'CineShot 成功收錄！' : status === 'error' ? '收錄失敗' : 'CineShot 正在收錄...';
-    
-    toast.innerHTML = `
-      <div class="cs-toast-header">
-        <span>${icon}</span>
-        <span>${headerText}</span>
-      </div>
-      <div class="cs-toast-title">${escapeHtml(title)}</div>
-      <div class="cs-toast-body">${escapeHtml(message)}</div>
-    `;
+    var icon = status === 'success' ? '✅' : status === 'error' ? '❌' : '🎬';
+    var headerText = status === 'success' ? 'CineShot 成功收錄！' : status === 'error' ? '收錄失敗' : 'CineShot 正在收錄...';
+
+    toast.innerHTML =
+      '<div class="cs-toast-header"><span>' + icon + '</span><span>' + headerText + '</span></div>' +
+      '<div class="cs-toast-title">' + escapeHtml(title) + '</div>' +
+      '<div class="cs-toast-body">' + escapeHtml(message) + '</div>';
 
     clearTimeout(toast._timeout);
-    toast._timeout = setTimeout(() => {
+    toast._timeout = setTimeout(function () {
       toast.classList.add('cs-toast-hide');
-      setTimeout(() => {
+      setTimeout(function () {
         if (toast.parentNode) toast.parentNode.removeChild(toast);
       }, 350);
     }, duration);
@@ -56,62 +48,71 @@
 
   function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/[&<>"']/g, m => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[m]);
+    var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return str.replace(/[&<>"']/g, function (m) { return map[m]; });
   }
 
-  // 2. Video Sniffer Logic
+  // ─── Video Detection ──────────────────────────────────
+  function hasRealVideo() {
+    var videos = document.querySelectorAll('video');
+    for (var i = 0; i < videos.length; i++) {
+      var v = videos[i];
+      // Must be visible (not tiny ad tracker pixels)
+      if (v.clientWidth < 100 || v.clientHeight < 60) continue;
+      // Must have a real src (not empty, not just a blob from ads)
+      var src = v.currentSrc || v.src || '';
+      if (src && src.length > 5) return true;
+      // Also check if it has source children
+      if (v.querySelector('source[src]')) return true;
+    }
+    return false;
+  }
+
   function getBestVideo() {
-    const videos = Array.from(document.querySelectorAll('video'));
+    var videos = Array.from(document.querySelectorAll('video'));
     if (!videos.length) return null;
 
-    // A. Currently playing video
-    const playing = videos.find(v => !v.paused && !v.ended && v.currentTime > 0);
+    // Prefer currently playing video
+    var playing = videos.find(function (v) { return !v.paused && !v.ended && v.currentTime > 0; });
     if (playing) return playing;
 
-    // B. Largest visible video
-    videos.sort((a, b) => {
-      const areaA = a.clientWidth * a.clientHeight;
-      const areaB = b.clientWidth * b.clientHeight;
-      return areaB - areaA;
+    // Largest visible video
+    videos.sort(function (a, b) {
+      return (b.clientWidth * b.clientHeight) - (a.clientWidth * a.clientHeight);
     });
-
     return videos[0];
   }
 
-  // 3. Platform-specific metadata extraction
+  // ─── Metadata Extraction ──────────────────────────────
   function extractMetadata() {
-    const host = window.location.hostname;
-    let title = '';
-    let client = '品牌客戶';
+    var host = window.location.hostname;
+    var title = '';
+    var client = '品牌客戶';
 
-    // Site-specific Title & Author heuristics
     if (host.includes('xinpianchang.com')) {
-      const tEl = document.querySelector('.video-info-title, .article-title, .title-wrap h1, h1');
+      var tEl = document.querySelector('.video-info-title, .article-title, .title-wrap h1, h1');
       if (tEl) title = tEl.innerText.trim();
-      const uEl = document.querySelector('.author-info .name, .user-name, .creator-name');
+      var uEl = document.querySelector('.author-info .name, .user-name, .creator-name');
       if (uEl) client = uEl.innerText.trim();
     } else if (host.includes('youtube.com')) {
-      const tEl = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string, h1.title');
-      if (tEl) title = tEl.innerText.trim();
-      const cEl = document.querySelector('#channel-name yt-formatted-string, #owner-name a, ytd-channel-name');
+      var tEl2 = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string, h1.title');
+      if (tEl2) title = tEl2.innerText.trim();
+      var cEl = document.querySelector('#channel-name yt-formatted-string, #owner-name a, ytd-channel-name');
       if (cEl) client = cEl.innerText.trim();
     } else if (host.includes('bilibili.com')) {
-      const tEl = document.querySelector('.video-title, h1.video-title');
-      if (tEl) title = tEl.innerText.trim();
-      const uEl = document.querySelector('.up-name, .username');
-      if (uEl) client = uEl.innerText.trim();
+      var tEl3 = document.querySelector('.video-title, h1.video-title');
+      if (tEl3) title = tEl3.innerText.trim();
+      var uEl2 = document.querySelector('.up-name, .username');
+      if (uEl2) client = uEl2.innerText.trim();
     } else if (host.includes('vimeo.com')) {
-      const tEl = document.querySelector('h1.clip_info-title, h1');
-      if (tEl) title = tEl.innerText.trim();
+      var tEl4 = document.querySelector('h1.clip_info-title, h1');
+      if (tEl4) title = tEl4.innerText.trim();
     }
 
     if (!title) {
       title = document.title || '精選影視商業大片';
     }
 
-    // Clean up generic site suffixes
     title = title
       .replace(/\s*-\s*YouTube$/i, '')
       .replace(/_哔哩哔哩_bilibili.*$/i, '')
@@ -120,10 +121,10 @@
       .replace(/\s*\|\s*.*$/i, '')
       .trim();
 
-    return { title, client };
+    return { title: title, client: client };
   }
 
-  // 4. Ingestion Action Trigger
+  // ─── Ingestion ────────────────────────────────────────
   async function triggerIngestion() {
     if (isIngesting) return;
     isIngesting = true;
@@ -133,63 +134,61 @@
       floatingBtn.querySelector('.cs-text').innerText = '正在嗅探傳送...';
     }
 
-    const video = getBestVideo();
-    const { title, client } = extractMetadata();
-    const pageUrl = window.location.href;
+    var video = getBestVideo();
+    var meta = extractMetadata();
+    var pageUrl = window.location.href;
 
-    let videoUrl = '';
+    var videoUrl = '';
     if (video) {
       videoUrl = video.currentSrc || video.src || '';
     }
 
-    // Optimization for Xinpianchang:
-    // If video.currentSrc is a direct CDN mp4 (e.g. oss-xpc0.xpccdn.com), use it directly to bypass WAF!
-    // For YouTube / Bilibili: pageUrl is preferred because yt-dlp has dedicated extractors for high quality.
-    let targetUrl = pageUrl;
+    // For Xinpianchang: use direct CDN URL to bypass WAF
+    // For YouTube/Bilibili: use pageUrl because yt-dlp has better extractors
+    var targetUrl = pageUrl;
     if (window.location.hostname.includes('xinpianchang.com') && videoUrl && !videoUrl.startsWith('blob:')) {
       targetUrl = videoUrl;
-    } else if (videoUrl && !videoUrl.startsWith('blob:') && !window.location.hostname.includes('youtube.com') && !window.location.hostname.includes('bilibili.com')) {
+    } else if (videoUrl && !videoUrl.startsWith('blob:') &&
+      !window.location.hostname.includes('youtube.com') &&
+      !window.location.hostname.includes('bilibili.com')) {
       targetUrl = videoUrl;
     }
 
-    showToast('loading', title, '⚡ 正在將影片發送至 CineShot 雲端 AI 機房...');
+    showToast('loading', meta.title, '⚡ 正在將影片發送至 CineShot 雲端 AI 機房...');
 
-    const payload = {
+    var payload = {
       videoUrl: targetUrl,
       streamUrl: videoUrl,
       pageUrl: pageUrl,
-      title: title,
-      client: client
+      title: meta.title,
+      client: meta.client
     };
 
-    let success = false;
-    let responseMsg = '';
+    var success = false;
+    var responseMsg = '';
 
-    // Send via privileged Background Service Worker (100% immune to webpage CSP & CORS!)
     try {
-      const response = await new Promise((resolve) => {
+      var response = await new Promise(function (resolve) {
         chrome.runtime.sendMessage(
           { type: 'INGEST_VIDEO', payload: payload },
-          (res) => resolve(res || { success: false, error: '擴充功能後台連線超時' })
+          function (res) { resolve(res || { success: false, error: '擴充功能後台連線超時' }); }
         );
       });
       if (response && response.success) {
         success = true;
         responseMsg = response.message || '已成功送入 CineShot 雲端拉片隊列！';
-      } else {
-        console.warn('[CineShot Content] 收錄失敗:', response && response.error);
       }
     } catch (err) {
-      console.error('[CineShot Content] 擴充通訊失敗:', err);
+      console.error('[CineShot] Communication error:', err);
     }
 
     if (success) {
-      showToast('success', title, `🎉 ${responseMsg}\nGemini 3.5 正在後台逐幀拉片，約 20 秒後即可在首頁檢索！`, 5000);
+      showToast('success', meta.title, '🎉 ' + responseMsg + '\nGemini 正在後台拉片，約 20 秒後即可檢索！', 5000);
       if (floatingBtn) {
         floatingBtn.classList.remove('cs-loading');
         floatingBtn.classList.add('cs-success');
         floatingBtn.querySelector('.cs-text').innerText = '已成功收錄！';
-        setTimeout(() => {
+        setTimeout(function () {
           floatingBtn.classList.remove('cs-success');
           floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
           isIngesting = false;
@@ -198,7 +197,7 @@
         isIngesting = false;
       }
     } else {
-      showToast('error', title, '無法連線到 CineShot 伺服器，請確認網路連線或稍後再試。', 4000);
+      showToast('error', meta.title, '無法連線到 CineShot 伺服器，請確認網路連線或稍後再試。', 4000);
       if (floatingBtn) {
         floatingBtn.classList.remove('cs-loading');
         floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
@@ -207,20 +206,19 @@
     }
   }
 
-  // 5. Create Floating UI Button
+  // ─── Floating Button ──────────────────────────────────
   function createFloatingButton() {
     if (document.getElementById('cineshot-sniffer-btn')) return;
 
     floatingBtn = document.createElement('div');
     floatingBtn.id = 'cineshot-sniffer-btn';
     floatingBtn.title = '點擊或按鍵盤 Alt + S 即刻存入 CineShot 雲端分鏡庫';
-    floatingBtn.innerHTML = `
-      <span class="cs-icon">🎬</span>
-      <span class="cs-text">存入 CineShot</span>
-      <span class="cs-shortcut">Alt+S</span>
-    `;
+    floatingBtn.innerHTML =
+      '<span class="cs-icon">🎬</span>' +
+      '<span class="cs-text">存入 CineShot</span>' +
+      '<span class="cs-shortcut">Alt+S</span>';
 
-    floatingBtn.addEventListener('click', (e) => {
+    floatingBtn.addEventListener('click', function (e) {
       e.stopPropagation();
       triggerIngestion();
     });
@@ -228,37 +226,59 @@
     document.body.appendChild(floatingBtn);
   }
 
-  // 6. Global Keyboard Shortcut Listener (Alt + S / Option + S)
-  window.addEventListener('keydown', (e) => {
-    // Check Alt + S (Mac Option + S often outputs 'ß' or 's')
+  function removeFloatingButton() {
+    var btn = document.getElementById('cineshot-sniffer-btn');
+    if (btn) {
+      btn.parentNode.removeChild(btn);
+      floatingBtn = null;
+    }
+  }
+
+  // ─── Keyboard Shortcut: Alt + S ───────────────────────
+  window.addEventListener('keydown', function (e) {
     if (e.altKey && (e.code === 'KeyS' || e.key === 's' || e.key === 'S' || e.key === 'ß')) {
       e.preventDefault();
+      // Force show the button on Alt+S even if no video detected
+      forceShow = true;
+      createFloatingButton();
       triggerIngestion();
     }
   }, true);
 
-  // 7. Auto-detection on DOM and URL changes
+  // ─── Smart Detection: Only show on pages with real video ──
+  var checkDebounce = null;
+
   function checkAndAttach() {
-    const hasVideo = !!document.querySelector('video');
-    const isVideoSite = /xinpianchang|youtube|bilibili|vimeo|adquan|digitaling/i.test(location.hostname);
-    
-    if (hasVideo || isVideoSite) {
+    // If user already pressed Alt+S, always keep button
+    if (forceShow) {
       createFloatingButton();
+      return;
+    }
+
+    if (hasRealVideo()) {
+      createFloatingButton();
+    } else {
+      removeFloatingButton();
     }
   }
 
-  // Initial check
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', checkAndAttach);
-  } else {
-    checkAndAttach();
+  function debouncedCheck() {
+    clearTimeout(checkDebounce);
+    checkDebounce = setTimeout(checkAndAttach, 500);
   }
 
-  // Observe page dynamically for SPA route changes & delayed video rendering
-  const observer = new MutationObserver(() => {
-    checkAndAttach();
-  });
+  // Initial check after page load
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      setTimeout(checkAndAttach, 1000);
+    });
+  } else {
+    setTimeout(checkAndAttach, 1000);
+  }
+
+  // Observe DOM changes (debounced to avoid performance hit)
+  var observer = new MutationObserver(debouncedCheck);
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
-  console.log('🎬 [CineShot Sniffer] 影鏡全網一鍵收割外掛已注入！支援快捷鍵 Alt + S。');
+  console.log('🎬 [CineShot] Extension injected. Press Alt+S or wait for video detection.');
 })();

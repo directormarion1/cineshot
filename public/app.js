@@ -505,6 +505,7 @@ function returnToCleanHome() {
 }
 
 // Cinematic Semantic Synonyms & Visual Language Dictionary
+// IMPORTANT: Each sport/activity has its OWN isolated group to prevent cross-contamination
 const CINEMATIC_SYNONYMS = {
   // 動作 / 微動作
   '跳舞': ['跳舞', '舞蹈', '舞步', '街舞', '碎步', '舞動', '韻律', '律動', 'dance', 'dancing'],
@@ -516,8 +517,14 @@ const CINEMATIC_SYNONYMS = {
   '奔跑': ['跑', '跑步', '奔跑', '衝刺', '慢跑', '踏步', '田徑', '跑道', '跨步', 'run', 'running', 'sprint'],
   '開車': ['車', '汽車', '跑車', '夜馳', '老車', '奔馳', '漂移', '馳騁', '駕駛', '開車', '甩尾', 'car', 'drive', 'driving'],
   '車': ['車', '汽車', '跑車', '夜馳', '老車', '奔馳', '漂移', '馳騁', '駕駛', '開車', '甩尾', 'car', 'drive', 'driving'],
-  '球': ['球', '傳球', '投籃', '運球', '踢球', '拋球', '轉球', '控球', '持球', '假動作', '橄欖球', '籃球', '足球', 'ball'],
-  '傳球': ['球', '傳球', '投籃', '運球', '踢球', '拋球', '轉球', '控球', '持球', '假動作', '橄欖球', 'ball'],
+
+  // 球類運動 - 各運動完全獨立，互不交叉！
+  '籃球': ['籃球', '投籃', '運球', '灌籃', '籃板', '三分球', '上籃', 'basketball', 'NBA', 'dunk'],
+  '橄欖球': ['橄欖球', '達陣', '四分衛', 'football', 'NFL', 'touchdown', 'quarterback'],
+  '足球': ['足球', '踢球', '射門', '盤帶', '角球', 'soccer', 'football'],
+  '棒球': ['棒球', '打擊', '投球', '全壘打', 'baseball', 'MLB'],
+  '傳球': ['傳球', '假動作', '控球', '持球', '拋球', '轉球', 'pass', 'ball handling'],
+
   '鞋': ['鞋', '跑鞋', '球鞋', '鞋帶', '鞋底', '碳板', '織網', 'shoes', 'sneaker'],
   '牽手': ['牽手', '牽', '手牽手', '握手', '相扣', '拉手', '手', 'hand', 'hands'],
   '笑': ['笑', '微笑', '笑容', '大笑', '開心', '放鬆', '幽默', 'smile', 'laugh'],
@@ -549,22 +556,22 @@ function expandQueryWords(query) {
   const qClean = query.toLowerCase().trim();
   const wordsSet = new Set([qClean]);
 
-  // 1. Direct synonym lookup & partial match
+  // Direct synonym lookup - only match if query contains or equals a key/synonym
   for (const [key, synonyms] of Object.entries(CINEMATIC_SYNONYMS)) {
-    if (qClean.includes(key) || key.includes(qClean) || synonyms.some(s => qClean.includes(s) || s.includes(qClean))) {
+    // Exact match or query contains the full key (≥2 chars)
+    const keyMatch = (key.length >= 2) ? (qClean.includes(key) || key.includes(qClean)) : (qClean === key);
+    const synMatch = synonyms.some(s => {
+      if (s.length < 2) return qClean === s;
+      return qClean.includes(s) || s.includes(qClean);
+    });
+
+    if (keyMatch || synMatch) {
       synonyms.forEach(s => wordsSet.add(s.toLowerCase()));
     }
   }
 
-  // 2. Chinese 2-character action root extraction (e.g. "跳舞" -> root "舞")
-  if (qClean.length >= 2) {
-    for (let i = 0; i < qClean.length; i++) {
-      const char = qClean[i];
-      if ('舞跑打車球鞋笑哭走跳拍光飛影'.includes(char)) {
-        wordsSet.add(char);
-      }
-    }
-  }
+  // NO single-character root extraction - it causes cross-contamination
+  // (e.g. "籃球" → "球" → matches "橄欖球", which is wrong)
 
   return Array.from(wordsSet);
 }
@@ -705,10 +712,10 @@ function renderVideoGrid(query) {
       <div class="video-frame-wrap" title="點擊檢視視聽語言參數">
         <video 
           class="shot-card-video" 
-          src="${clip.previewUrl}#t=${clip.startTime || 0},${clip.endTime || 5}" 
+          src="${clip.previewUrl}" 
           playsinline 
           muted 
-          preload="metadata"
+          preload="none"
         ></video>
 
         <div class="overlay-top-tags">
@@ -867,7 +874,7 @@ function openDetailModal(clip) {
 
   modalBody.innerHTML = `
     <div style="background: #000; position: relative;">
-      <video id="modalVideoPlayer" src="${clip.previewUrl}#t=${start},${end}" controls autoplay loop playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
+      <video id="modalVideoPlayer" src="${clip.previewUrl}" controls playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
     </div>
     <div style="padding: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
@@ -904,27 +911,26 @@ function openDetailModal(clip) {
 
   const mv = document.getElementById('modalVideoPlayer');
   if (mv) {
-    let initialized = false;
-    const startPlayback = () => {
-      if (initialized) return;
-      initialized = true;
-      try {
-        if (Math.abs(mv.currentTime - start) > 0.5) {
-          mv.currentTime = start;
-        }
-        mv.play().catch(() => {});
-      } catch (err) {}
-    };
+    // Seek to start position once metadata is loaded, then play
+    mv.addEventListener('loadedmetadata', function onMeta() {
+      mv.removeEventListener('loadedmetadata', onMeta);
+      mv.currentTime = start;
+    });
 
-    mv.addEventListener('loadedmetadata', startPlayback);
-    mv.addEventListener('canplay', startPlayback);
+    mv.addEventListener('seeked', function onFirstSeek() {
+      mv.removeEventListener('seeked', onFirstSeek);
+      mv.play().catch(() => {});
+    });
 
-    // Loop strictly when reaching end timecode (Zero seek loop aborts)
+    // Loop back to start when reaching end timecode
     mv.addEventListener('timeupdate', () => {
       if (mv.currentTime >= end) {
         mv.currentTime = start;
       }
     });
+
+    // Trigger loading
+    mv.load();
   }
 
   clipModal.classList.add('open');
