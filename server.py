@@ -20,6 +20,7 @@ PORT = int(os.environ.get('PORT', 8765))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
 DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
+INGEST_TOKEN = os.environ.get('INGEST_TOKEN', '')
 INGEST_TASKS = {}
 
 class RangeFileWrapper:
@@ -43,6 +44,26 @@ class RangeFileWrapper:
 class CineShotHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=PUBLIC_DIR, **kwargs)
+
+    def check_ingest_token(self):
+        """Verify request token against INGEST_TOKEN environment variable"""
+        if not INGEST_TOKEN:
+            return True
+
+        token = self.headers.get('X-CineShot-Token')
+        if not token:
+            parsed = urllib.parse.urlparse(self.path)
+            query = urllib.parse.parse_qs(parsed.query)
+            token = query.get('token', [''])[0]
+
+        if token != INGEST_TOKEN:
+            self.send_response(403)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': 'forbidden'}).encode('utf-8'))
+            return False
+        return True
 
     def copyfile(self, source, outputfile):
         """Gracefully handle broken pipe when browser aborts video buffering"""
@@ -70,7 +91,8 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     path = index_path
                     break
             else:
-                return super().send_head()
+                self.send_error(404, "File not found")
+                return None
 
         ctype = self.guess_type(path)
         try:
@@ -82,13 +104,34 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         fs = os.fstat(f.fileno())
         total_len = fs[6]
 
-        # Handle HTTP Range Header (Crucial for video streaming on macOS)
+        # Check media caching (mp4, webm, jpg, png, etc.)
+        is_media = any(path.endswith(ext) for ext in ('.mp4', '.webm', '.jpg', '.jpeg', '.png', '.webp'))
+        etag = f'"{int(fs.st_mtime)}-{total_len}"' if is_media else None
+
+        if etag:
+            if_none_match = self.headers.get('If-None-Match')
+            if if_none_match and if_none_match.strip() == etag:
+                self.send_response(304)
+                self.send_header('ETag', etag)
+                self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+                self.end_headers()
+                f.close()
+                return None
+
+        # Handle HTTP Range Header (RFC 7233 compliant)
         range_header = self.headers.get('Range')
         if range_header and range_header.startswith('bytes='):
             try:
                 ranges = range_header[6:].split('-')
-                start = int(ranges[0]) if ranges[0] else 0
-                end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else total_len - 1
+                if not ranges[0] and len(ranges) > 1 and ranges[1]:
+                    # Suffix range: bytes=-500 -> last 500 bytes
+                    suffix_len = int(ranges[1])
+                    start = max(0, total_len - suffix_len)
+                    end = total_len - 1
+                else:
+                    start = int(ranges[0]) if ranges[0] else 0
+                    end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else total_len - 1
+
                 if start >= total_len or end >= total_len or start > end:
                     self.send_error(416, "Requested Range Not Satisfiable")
                     f.close()
@@ -100,7 +143,9 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                 self.send_header('Content-Range', f'bytes {start}-{end}/{total_len}')
                 self.send_header('Content-Length', str(length))
                 self.send_header('Accept-Ranges', 'bytes')
-                self.send_header('Cache-Control', 'no-cache')
+                if is_media:
+                    self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+                    self.send_header('ETag', etag)
                 self.end_headers()
                 f.seek(start)
                 return RangeFileWrapper(f, length)
@@ -112,6 +157,9 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(total_len))
         self.send_header('Accept-Ranges', 'bytes')
+        if is_media:
+            self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+            self.send_header('ETag', etag)
         self.end_headers()
         return f
 
@@ -168,6 +216,8 @@ class CineShotHandler(SimpleHTTPRequestHandler):
 
         # Bookmarklet: True 1-Click Ingestion
         if path == '/import':
+            if not self.check_ingest_token():
+                return
             query = urllib.parse.parse_qs(parsed.query)
             video_url = query.get('url', [''])[0]
             title = query.get('title', ['新片場精選'])[0]
@@ -261,6 +311,8 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         if path == '/api/ingest':
+            if not self.check_ingest_token():
+                return
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
             try:
@@ -279,6 +331,10 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     'time': time.time(),
                     'shots': 0
                 }
+                # Keep max 50 items to prevent unbounded memory growth
+                if len(INGEST_TASKS) > 50:
+                    oldest_key = next(iter(INGEST_TASKS))
+                    del INGEST_TASKS[oldest_key]
 
                 def run_ingest(t_id, v_url, v_title, v_client):
                     try:
@@ -364,6 +420,8 @@ def run_server():
     print("=" * 60)
     print(f"🎬 CineShot (影鏡) - 乾淨極簡搜尋首頁與視聽語言檢索台已就緒！(多線程模式)")
     print(f"👉 請在瀏覽器打開：http://localhost:{PORT}")
+    if not INGEST_TOKEN:
+        print("⚠️  警告：未配置 INGEST_TOKEN 環境變數，/api/ingest 與 /import 處於免鑑權模式！生產環境請務必設定 INGEST_TOKEN。")
     print("=" * 60)
     try:
         httpd.serve_forever()

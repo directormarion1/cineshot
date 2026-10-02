@@ -5,6 +5,7 @@
 
 const PRIMARY_API = 'https://web-production-cafae.up.railway.app/api/ingest';
 const LOCAL_API = 'http://localhost:8765/api/ingest';
+const INGEST_TOKEN = ''; // Set to match INGEST_TOKEN on server if configured
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
@@ -23,6 +24,11 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
 async function handleIngest(payload) {
   console.log('[CineShot BG] Ingest request:', payload);
 
+  var headers = {
+    'Content-Type': 'application/json',
+    'X-CineShot-Token': INGEST_TOKEN
+  };
+
   // Try cloud API first
   try {
     var controller = new AbortController();
@@ -30,7 +36,7 @@ async function handleIngest(payload) {
 
     var resp = await fetch(PRIMARY_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(payload),
       signal: controller.signal
     });
@@ -49,7 +55,7 @@ async function handleIngest(payload) {
   try {
     var respLocal = await fetch(LOCAL_API, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify(payload)
     });
     if (respLocal.ok) {

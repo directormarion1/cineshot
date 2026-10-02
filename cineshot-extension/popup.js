@@ -1,3 +1,5 @@
+const INGEST_TOKEN = ''; // Set to match INGEST_TOKEN on server if configured
+
 document.addEventListener('DOMContentLoaded', () => {
   const btnIngest = document.getElementById('btn-ingest');
   const btnOpen = document.getElementById('btn-open-cineshot');
@@ -34,7 +36,10 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const resp = await fetch('https://web-production-cafae.up.railway.app/api/ingest', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CineShot-Token': INGEST_TOKEN
+        },
         body: JSON.stringify({
           videoUrl: url,
           pageUrl: url,

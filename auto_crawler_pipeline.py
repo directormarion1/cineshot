@@ -44,7 +44,7 @@ def analyze_video_with_gemini(video_path, api_key, title="商業廣告", client=
     mime_type = mimetypes.guess_type(video_path)[0] or 'video/mp4'
 
     # Step 1: Upload Video via Google Files API
-    upload_url = f"https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=media&key={api_key}"
+    upload_url = "https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=media"
     headers = {
         "Content-Type": mime_type,
         "x-goog-api-key": api_key
@@ -64,7 +64,7 @@ def analyze_video_with_gemini(video_path, api_key, title="商業廣告", client=
         print("[AI 大腦] 等待 Google 神經網路分析影音時間軸...")
         for _ in range(20):
             get_req = urllib.request.Request(
-                f"https://generativelanguage.googleapis.com/v1beta/{file_name}?key={api_key}",
+                f"https://generativelanguage.googleapis.com/v1beta/{file_name}",
                 headers={"x-goog-api-key": api_key}
             )
             with urllib.request.urlopen(get_req) as resp:
@@ -122,7 +122,7 @@ def analyze_video_with_gemini(video_path, api_key, title="商業廣告", client=
         # Test models with automatic retry on 503
         candidate_models = ["gemini-3.5-flash", "gemini-3.8-flash"]
         for model_name in candidate_models:
-            gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            gen_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
             for attempt in range(4):
                 try:
                     req = urllib.request.Request(

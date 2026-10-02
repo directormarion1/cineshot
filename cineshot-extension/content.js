@@ -128,6 +128,7 @@
   async function triggerIngestion() {
     if (isIngesting) return;
     isIngesting = true;
+    var targetUrl = '';
 
     if (floatingBtn) {
       floatingBtn.classList.add('cs-loading');
