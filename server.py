@@ -141,6 +141,85 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps(res).encode('utf-8'))
             return
 
+        # Bookmarklet: True 1-Click Ingestion
+        if path == '/import':
+            query = urllib.parse.parse_qs(parsed.query)
+            video_url = query.get('url', [''])[0]
+            title = query.get('title', ['新片場精選'])[0]
+            client = query.get('client', ['新片場精選'])[0]
+
+            if video_url:
+                import threading, re
+                def run_import(v_url, v_title, v_client):
+                    try:
+                        import yt_dlp, time
+                        clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
+                        out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
+                        out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
+                        ydl_opts = {
+                            'outtmpl': out_path,
+                            'quiet': True,
+                            'no_warnings': True,
+                        }
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                            ydl.download([v_url])
+                        from auto_crawler_pipeline import process_single_video
+                        process_single_video(out_path, title=v_title, client=v_client)
+                    except Exception as e:
+                        print(f"[Import Error] {e}")
+
+                threading.Thread(target=run_import, args=(video_url, title, client), daemon=True).start()
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/html; charset=utf-8')
+            self.end_headers()
+            html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>CineShot 收錄成功</title>
+    <style>
+        body {{
+            background: #0f1015;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }}
+        .card {{
+            background: #171922;
+            border: 1px solid #ffaa00;
+            border-radius: 12px;
+            padding: 30px 40px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            max-width: 480px;
+        }}
+        h2 {{ color: #ffaa00; margin-top: 0; font-size: 22px; }}
+        p {{ color: #bbb; font-size: 14px; line-height: 1.6; }}
+        .badge {{ background: #222634; padding: 6px 12px; border-radius: 6px; font-weight: bold; color: #ffaa00; display: inline-block; margin: 8px 0; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>🎬 CineShot 成功收錄！</h2>
+        <p>已成功捕獲影片：<br><span class="badge">{title}</span></p>
+        <p>⚡ 雲端機房正以百兆光纖下載，Gemini 3.5 AI 正在為您逐幀拉片切片！<br>約 20 秒後即可在 CineShot 搜尋到。</p>
+        <p style="color:#666; font-size:12px;">（本視窗將在 3 秒後自動關閉）</p>
+    </div>
+    <script>
+        setTimeout(() => {{
+            window.close();
+        }}, 3500);
+    </script>
+</body>
+</html>"""
+            self.wfile.write(html.encode('utf-8'))
+            return
+
         # Serve static files
         return super().do_GET()
 
