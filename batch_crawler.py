@@ -129,7 +129,12 @@ def download_and_ingest_url(url, pipeline_func):
 
         # Extract detailed info for single video check
         try:
-            with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True}) as ydl_single:
+            ydl_info_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            }
+            with yt_dlp.YoutubeDL(ydl_info_opts) as ydl_single:
                 detail = ydl_single.extract_info(v_url, download=False)
         except Exception as e:
             print(f"⚠️ 無法讀取影片詳細資訊: {e}")
@@ -152,10 +157,11 @@ def download_and_ingest_url(url, pipeline_func):
         out_path = os.path.join(VIDEOS_DIR, out_filename)
 
         ydl_download_opts = {
-            'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best',
+            'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
             'outtmpl': out_path,
             'quiet': False,
             'no_warnings': True,
+            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
         }
 
         try:

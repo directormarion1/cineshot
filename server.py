@@ -157,9 +157,11 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
                         out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
                         ydl_opts = {
+                            'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
                             'outtmpl': out_path,
                             'quiet': True,
                             'no_warnings': True,
+                            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             ydl.download([v_url])
@@ -238,9 +240,9 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             body = self.rfile.read(length)
             try:
                 payload = json.loads(body.decode('utf-8'))
-                video_url = payload.get('videoUrl')
-                title = payload.get('title', '新片場精選')
-                client = payload.get('client', '品牌客戶')
+                video_url = payload.get('videoUrl') or payload.get('streamUrl') or payload.get('pageUrl')
+                title = payload.get('title', '精選影視短片')
+                client = payload.get('client', '品牌專題')
                 
                 import threading, re
                 def run_ingest(v_url, v_title, v_client):
@@ -251,9 +253,11 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
                         
                         ydl_opts = {
+                            'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
                             'outtmpl': out_path,
                             'quiet': True,
                             'no_warnings': True,
+                            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             ydl.download([v_url])

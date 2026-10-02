@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8">
+  <title>CineShot 影鏡收割助手</title>
+  <style>
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      background: #0f1117;
+      color: #f3f4f6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(229, 169, 59, 0.2);
+      padding-bottom: 12px;
+      margin-bottom: 14px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-icon {
+      font-size: 20px;
+    }
+    .brand-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: #e5a93b;
+      letter-spacing: 0.5px;
+    }
+    .status-badge {
+      font-size: 10px;
+      padding: 3px 8px;
+      background: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      background: #10b981;
+      border-radius: 50%;
+      box-shadow: 0 0 6px #10b981;
+    }
+    .info-card {
+      background: #181a24;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #94a3b8;
+    }
+    .shortcut-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.06);
+    }
+    .kbd {
+      background: #252836;
+      border: 1px solid rgba(229, 169, 59, 0.4);
+      color: #e5a93b;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: bold;
+      font-size: 11px;
+    }
+    .input-group {
+      margin-bottom: 12px;
+    }
+    .input-label {
+      font-size: 11px;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+      display: block;
+      font-weight: 500;
+    }
+    .text-input {
+      width: 100%;
+      background: #181a24;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      color: #fff;
+      padding: 8px 10px;
+      font-size: 12px;
+      box-sizing: border-box;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .text-input:focus {
+      border-color: #e5a93b;
+    }
+    .btn {
+      width: 100%;
+      background: linear-gradient(135deg, #e5a93b 0%, #b8860b 100%);
+      color: #000;
+      border: none;
+      border-radius: 6px;
+      padding: 9px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: opacity 0.2s;
+    }
+    .btn:hover {
+      opacity: 0.92;
+    }
+    .btn-secondary {
+      background: #222634;
+      color: #cbd5e1;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      margin-top: 8px;
+    }
+    .btn-secondary:hover {
+      background: #2a2f40;
+      color: #fff;
+    }
+    #msg {
+      font-size: 11px;
+      margin-top: 8px;
+      text-align: center;
+      min-height: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <span class="brand-icon">🎬</span>
+      <span class="brand-title">CineShot 影鏡</span>
+    </div>
+    <div class="status-badge">
+      <span class="status-dot"></span>
+      <span>雲端已連線</span>
+    </div>
+  </div>
+
+  <div class="info-card">
+    <div>✨ <b>全網一鍵收割模式已啟用</b></div>
+    <div style="font-size: 11px; margin-top: 4px;">在任何影片網頁（新片場、YouTube、B站），右下角將自動浮現金標按鈕。</div>
+    <div class="shortcut-row">
+      <span>全局極速快捷鍵</span>
+      <span class="kbd">Alt + S</span>
+    </div>
+  </div>
+
+  <div class="input-group">
+    <label class="input-label">手動貼上影片網址收錄：</label>
+    <input type="text" id="manual-url" class="text-input" placeholder="貼上任意影片網址..." />
+  </div>
+
+  <button id="btn-ingest" class="btn">
+    <span>⚡ 立即傳送至雲端 AI 拉片</span>
+  </button>
+
+  <button id="btn-open-cineshot" class="btn btn-secondary">
+    <span>🌐 打開 CineShot 雲端檢索首頁</span>
+  </button>
+
+  <div id="msg"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

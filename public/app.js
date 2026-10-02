@@ -432,6 +432,56 @@ async function loadClips() {
     const staticRes = await fetch('data/clips.json');
     allClips = await staticRes.json();
   }
+  updateCleanPills();
+}
+
+// Dynamically refresh homepage exploration pills from real database clips
+function updateCleanPills() {
+  const container = document.querySelector('.clean-pills');
+  if (!container || !allClips || allClips.length === 0) return;
+
+  const tagsSet = new Set();
+  const pills = [];
+
+  // 1. Client brand pill
+  const clients = [...new Set(allClips.map(c => c.client).filter(Boolean))];
+  if (clients.length > 0) {
+    const clientName = clients[0];
+    tagsSet.add(clientName);
+    pills.push({ query: clientName, label: `👟 ${clientName} 品牌大片` });
+  }
+
+  // 2. Action tags from real clips
+  allClips.forEach(c => {
+    if (c.actionTag && pills.length < 5) {
+      const shortTag = c.actionTag.split(/[，,、\s｜]/)[0].substring(0, 10);
+      if (shortTag && !tagsSet.has(shortTag)) {
+        tagsSet.add(shortTag);
+        let icon = '🎬';
+        if (/球|傳球|投籃|運動/.test(shortTag)) icon = '⚽';
+        else if (/跑|步|速/.test(shortTag)) icon = '🏃';
+        else if (/車|馳/.test(shortTag)) icon = '🚗';
+        else if (/特寫|眼神|回眸/.test(shortTag)) icon = '👁️';
+        else if (/光|影/.test(shortTag)) icon = '💡';
+        else if (/俯拍|全景|鏡頭|構圖/.test(shortTag)) icon = '📐';
+        pills.push({ query: shortTag, label: `${icon} ${shortTag}` });
+      }
+    }
+  });
+
+  if (pills.length > 0) {
+    const labelSpan = `<span class="pills-label" id="pillsLabel">${(I18N[currentLang] && I18N[currentLang].trendingLabel) || '熱門靈感：'}</span>`;
+    const pillsHtml = pills.map(p => 
+      `<button class="clean-pill" data-query="${p.query}">${p.label}</button>`
+    ).join(' ');
+    container.innerHTML = labelSpan + ' ' + pillsHtml;
+
+    container.querySelectorAll('.clean-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        activateWorkspace(pill.dataset.query);
+      });
+    });
+  }
 }
 
 // Switch from Clean Homepage to Workspace View

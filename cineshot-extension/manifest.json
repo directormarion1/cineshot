@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "CineShot 影鏡 - 全網一鍵影視收割器",
+  "version": "1.0.0",
+  "description": "在任何影片網站（新片場、YouTube、Bilibili、Vimeo 等）一鍵懸浮按鈕或快捷鍵 Alt+S，自動將高品質商業視聽大片送入 CineShot 雲端 AI 拆解分鏡庫。",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CineShot 影鏡收割助手",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ]
+}

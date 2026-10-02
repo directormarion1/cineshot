@@ -218,6 +218,7 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
     dest_name = f"ad_{int(time.time())}.mp4"
     dest_path = os.path.join(VIDEOS_DIR, dest_name)
     
+    video_path = os.path.abspath(video_path)
     if os.path.commonpath([video_path, VIDEOS_DIR]) == VIDEOS_DIR:
         relative_url = f"/videos/{os.path.basename(video_path)}"
     else:
