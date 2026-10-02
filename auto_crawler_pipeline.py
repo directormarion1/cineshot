@@ -33,8 +33,6 @@ def get_gemini_api_key():
                     if line.startswith('GEMINI_API_KEY='):
                         api_key = line.split('=', 1)[1].strip().strip('"').strip("'")
                         break
-    if not api_key:
-        api_key = "AQ.Ab8RN6JTrashqQpk4yIZNMD2Flgfm4qBAhKHwUU7bicDLsA0Fg"
     return api_key
 
 def analyze_video_with_gemini(video_path, api_key, title="商業廣告", client="品牌客戶"):
