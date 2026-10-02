@@ -9,13 +9,14 @@ import sys
 import json
 import shutil
 import mimetypes
-from http.server import HTTPServer, SimpleHTTPRequestHandler
+from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import urllib.parse
 
 PORT = int(os.environ.get('PORT', 8765))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
 DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
+INGEST_TASKS = {}
 
 class RangeFileWrapper:
     """Wrapper that limits reads to a specific byte length for HTTP 206 Partial Content"""
@@ -133,12 +134,32 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
+            clips_count = 0
+            if os.path.exists(DATA_FILE):
+                try:
+                    with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                        clips_count = len(json.load(f))
+                except Exception:
+                    pass
+            from auto_crawler_pipeline import get_gemini_api_key
             res = {
                 'status': 'online',
-                'engine': 'CineShot Pro Engine',
-                'streaming': 'HTTP/206 Range Enabled'
+                'engine': 'CineShot Pro Engine (Multi-Threaded HTTP/206)',
+                'streaming': 'Parallel Threading Enabled',
+                'clipsCount': clips_count,
+                'hasGeminiKey': bool(get_gemini_api_key()),
+                'activeTasks': len(INGEST_TASKS)
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
+            return
+
+        # API: Real-time Ingestion Task Status
+        if path == '/api/tasks':
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(list(INGEST_TASKS.values())[-10:]).encode('utf-8'))
             return
 
         # Bookmarklet: True 1-Click Ingestion
@@ -239,41 +260,86 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length)
             try:
+                import time, threading, re, urllib.request
                 payload = json.loads(body.decode('utf-8'))
                 video_url = payload.get('videoUrl') or payload.get('streamUrl') or payload.get('pageUrl')
                 title = payload.get('title', '精選影視短片')
                 client = payload.get('client', '品牌專題')
-                
-                import threading, re
-                def run_ingest(v_url, v_title, v_client):
+
+                task_id = f"task_{int(time.time())}"
+                INGEST_TASKS[task_id] = {
+                    'id': task_id,
+                    'title': title,
+                    'client': client,
+                    'status': 'downloading',
+                    'progress': '正在下載影片串流...',
+                    'time': time.time(),
+                    'shots': 0
+                }
+
+                def run_ingest(t_id, v_url, v_title, v_client):
                     try:
-                        import yt_dlp, time
                         clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
                         out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
-                        
-                        ydl_opts = {
-                            'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
-                            'outtmpl': out_path,
-                            'quiet': True,
-                            'no_warnings': True,
-                            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
-                        }
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                            ydl.download([v_url])
-                            
+
+                        # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
+                        is_direct_stream = (
+                            'xpccdn.com' in v_url or 
+                            'vod.xinpianchang.com' in v_url or 
+                            v_url.split('?')[0].endswith('.mp4')
+                        )
+
+                        if is_direct_stream:
+                            print(f"[Direct CDN Stream] Downloading from {v_url[:80]}...")
+                            req = urllib.request.Request(
+                                v_url, 
+                                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+                            )
+                            with urllib.request.urlopen(req, timeout=120) as resp, open(out_path, 'wb') as out_f:
+                                shutil.copyfileobj(resp, out_f)
+                            print(f"[Direct CDN Stream] Download complete: {out_filename}")
+                        else:
+                            # YouTube, Bilibili, Vimeo, etc.
+                            import yt_dlp
+                            ydl_opts = {
+                                'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
+                                'outtmpl': out_path,
+                                'quiet': True,
+                                'no_warnings': True,
+                                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                            }
+                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                                ydl.download([v_url])
+
+                        # AI Analysis
+                        INGEST_TASKS[t_id]['status'] = 'analyzing'
+                        INGEST_TASKS[t_id]['progress'] = 'Gemini 正在逐幀視覺分析並拆解鏡頭...'
+
                         from auto_crawler_pipeline import process_single_video
-                        process_single_video(out_path, title=v_title, client=v_client)
+                        shots = process_single_video(out_path, title=v_title, client=v_client)
+
+                        INGEST_TASKS[t_id]['status'] = 'done'
+                        INGEST_TASKS[t_id]['progress'] = f'AI 拆解完成！成功收錄 {len(shots) if shots else 0} 個鏡頭'
+                        INGEST_TASKS[t_id]['shots'] = len(shots) if shots else 0
+                        print(f"[Ingest Success] {v_title} -> {len(shots) if shots else 0} shots")
+
                     except Exception as e:
+                        INGEST_TASKS[t_id]['status'] = 'error'
+                        INGEST_TASKS[t_id]['progress'] = f'收錄失敗: {str(e)}'
                         print(f"[API Ingest Error] {e}")
 
-                threading.Thread(target=run_ingest, args=(video_url, title, client), daemon=True).start()
+                threading.Thread(target=run_ingest, args=(task_id, video_url, title, client), daemon=True).start()
 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.end_headers()
-                self.wfile.write(json.dumps({'status': 'queued', 'message': f'正在為您將《{title}》進行 AI 深度拉片與切片'}).encode('utf-8'))
+                self.wfile.write(json.dumps({
+                    'status': 'queued',
+                    'taskId': task_id,
+                    'message': f'正在為您將《{title}》進行 AI 深度拉片與切片'
+                }).encode('utf-8'))
                 return
             except Exception as e:
                 self.send_response(500)
@@ -291,9 +357,9 @@ class CineShotHandler(SimpleHTTPRequestHandler):
 
 def run_server():
     server_address = ('', PORT)
-    httpd = HTTPServer(server_address, CineShotHandler)
+    httpd = ThreadingHTTPServer(server_address, CineShotHandler)
     print("=" * 60)
-    print(f"🎬 CineShot (影鏡) - 乾淨極簡搜尋首頁與視聽語言檢索台已就緒！")
+    print(f"🎬 CineShot (影鏡) - 乾淨極簡搜尋首頁與視聽語言檢索台已就緒！(多線程模式)")
     print(f"👉 請在瀏覽器打開：http://localhost:{PORT}")
     print("=" * 60)
     try:

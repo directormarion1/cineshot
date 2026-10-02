@@ -143,10 +143,24 @@
     const video = getBestVideo();
     const { title, client } = extractMetadata();
     const pageUrl = window.location.href;
-    const videoUrl = video ? (video.currentSrc || video.src || '') : '';
+    let videoUrl = video ? (video.currentSrc || video.src || '') : '';
+    if (!videoUrl || videoUrl.startsWith('blob:')) {
+      const allVideos = document.querySelectorAll('video');
+      for (let i = 0; i < allVideos.length; i++) {
+        const vSrc = allVideos[i].currentSrc || allVideos[i].src;
+        if (vSrc && !vSrc.startsWith('blob:')) { videoUrl = vSrc; break; }
+        const sEl = allVideos[i].querySelector('source');
+        if (sEl && sEl.src && !sEl.src.startsWith('blob:')) { videoUrl = sEl.src; break; }
+      }
+    }
 
     let targetUrl = pageUrl;
-    if (window.location.hostname.includes('xinpianchang.com') && videoUrl && !videoUrl.startsWith('blob:')) {
+    if (window.location.hostname.includes('xinpianchang.com')) {
+      if (!videoUrl || videoUrl.startsWith('blob:')) {
+        showToast('error', title, '⚠️ 新片場反爬防護：請先在畫面中點擊「播放」按鈕，讓影片開始播放後，再點擊存入！', 6000);
+        isIngesting = false;
+        return;
+      }
       targetUrl = videoUrl;
     }
 

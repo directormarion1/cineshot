@@ -143,10 +143,29 @@
       videoUrl = video.currentSrc || video.src || '';
     }
 
-    // For Xinpianchang: use direct CDN URL to bypass WAF
-    // For YouTube/Bilibili: use pageUrl because yt-dlp has better extractors
-    var targetUrl = pageUrl;
-    if (window.location.hostname.includes('xinpianchang.com') && videoUrl && !videoUrl.startsWith('blob:')) {
+    // Comprehensive scan for video sources if primary video is empty
+    if (!videoUrl || videoUrl.startsWith('blob:')) {
+      var allVideos = document.querySelectorAll('video');
+      for (var i = 0; i < allVideos.length; i++) {
+        var vSrc = allVideos[i].currentSrc || allVideos[i].src;
+        if (vSrc && !vSrc.startsWith('blob:')) { videoUrl = vSrc; break; }
+        var sEl = allVideos[i].querySelector('source');
+        if (sEl && sEl.src && !sEl.src.startsWith('blob:')) { videoUrl = sEl.src; break; }
+      }
+    }
+
+    // Special Protection for Xinpianchang (Anti-Scraping WAF)
+    // Direct CDN video stream is REQUIRED because Railway server cannot crawl the HTML page directly
+    if (window.location.hostname.includes('xinpianchang.com')) {
+      if (!videoUrl || videoUrl.startsWith('blob:')) {
+        showToast('error', meta.title, '⚠️ 新片場反爬防護：請先在畫面中點擊「播放」按鈕，讓影片開始播放後，再點擊存入！', 6000);
+        if (floatingBtn) {
+          floatingBtn.classList.remove('cs-loading');
+          floatingBtn.querySelector('.cs-text').innerText = '存入 CineShot';
+        }
+        isIngesting = false;
+        return;
+      }
       targetUrl = videoUrl;
     } else if (videoUrl && !videoUrl.startsWith('blob:') &&
       !window.location.hostname.includes('youtube.com') &&

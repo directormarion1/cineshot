@@ -712,10 +712,10 @@ function renderVideoGrid(query) {
       <div class="video-frame-wrap" title="點擊檢視視聽語言參數">
         <video 
           class="shot-card-video" 
-          src="${clip.previewUrl}" 
+          src="${clip.previewUrl}#t=${(clip.startTime || 0) + 0.1}" 
           playsinline 
           muted 
-          preload="none"
+          preload="metadata"
         ></video>
 
         <div class="overlay-top-tags">
@@ -874,7 +874,7 @@ function openDetailModal(clip) {
 
   modalBody.innerHTML = `
     <div style="background: #000; position: relative;">
-      <video id="modalVideoPlayer" src="${clip.previewUrl}" controls playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
+      <video id="modalVideoPlayer" src="${clip.previewUrl}#t=${start}" controls playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
     </div>
     <div style="padding: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
@@ -909,18 +909,27 @@ function openDetailModal(clip) {
     </div>
   `;
 
+  clipModal.classList.add('open');
+
   const mv = document.getElementById('modalVideoPlayer');
   if (mv) {
-    // Seek to start position once metadata is loaded, then play
-    mv.addEventListener('loadedmetadata', function onMeta() {
-      mv.removeEventListener('loadedmetadata', onMeta);
+    let playAttempted = false;
+    const tryPlay = () => {
+      if (playAttempted) return;
+      playAttempted = true;
       mv.currentTime = start;
-    });
+      const p = mv.play();
+      if (p !== undefined) {
+        p.catch(() => {
+          // Autoplay policy prevented unmuted playback, mute and play smoothly
+          mv.muted = true;
+          mv.play().catch(() => {});
+        });
+      }
+    };
 
-    mv.addEventListener('seeked', function onFirstSeek() {
-      mv.removeEventListener('seeked', onFirstSeek);
-      mv.play().catch(() => {});
-    });
+    mv.addEventListener('loadedmetadata', tryPlay);
+    mv.addEventListener('canplay', tryPlay);
 
     // Loop back to start when reaching end timecode
     mv.addEventListener('timeupdate', () => {
@@ -929,8 +938,10 @@ function openDetailModal(clip) {
       }
     });
 
-    // Trigger loading
-    mv.load();
+    // Try playing immediately if already ready
+    if (mv.readyState >= 2) {
+      tryPlay();
+    }
   }
 
   clipModal.classList.add('open');
