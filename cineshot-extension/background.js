@@ -8,10 +8,19 @@ importScripts('token.js');
 const PRIMARY_API = 'https://web-production-cafae.up.railway.app/api/ingest';
 const LOCAL_API = 'http://localhost:8765/api/ingest';
 
+const PRIMARY_BATCH_API = 'https://web-production-cafae.up.railway.app/api/batch_ingest';
+const LOCAL_BATCH_API = 'http://localhost:8765/api/batch_ingest';
+
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   if (request.type === 'INGEST_VIDEO') {
     handleIngest(request.payload)
+      .then(function(result) { sendResponse(result); })
+      .catch(function(err) { sendResponse({ success: false, error: err.message || 'Unknown error' }); });
+    return true; // Keep channel open for async sendResponse
+  }
+  if (request.type === 'BATCH_INGEST') {
+    handleBatchIngest(request.payload)
       .then(function(result) { sendResponse(result); })
       .catch(function(err) { sendResponse({ success: false, error: err.message || 'Unknown error' }); });
     return true; // Keep channel open for async sendResponse
@@ -48,7 +57,6 @@ async function handleIngest(payload) {
       console.log('[CineShot BG] Cloud API OK:', data);
       return { success: true, message: data.message || '已成功送入 CineShot 雲端拉片隊列！' };
     } else {
-      // Cloud returned non-2xx (e.g. 403 Forbidden). Do not fall back to local!
       var errorDetail = '雲端伺服器拒絕 (HTTP ' + resp.status + ')';
       try {
         var errJson = await resp.json();
@@ -80,5 +88,71 @@ async function handleIngest(payload) {
   return { success: false, error: '無法連線到 CineShot 伺服器' };
 }
 
+async function handleBatchIngest(payload) {
+  var count = (payload && payload.videos) ? payload.videos.length : 0;
+  console.log('[CineShot BG] Batch Ingest request for', count, 'videos');
+
+  var headers = {
+    'Content-Type': 'application/json',
+    'X-CineShot-Token': typeof INGEST_TOKEN !== 'undefined' ? INGEST_TOKEN : ''
+  };
+
+  // 1. Try cloud API first
+  try {
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, 20000);
+
+    var resp = await fetch(PRIMARY_BATCH_API, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (resp.ok) {
+      var data = await resp.json();
+      console.log('[CineShot BG] Cloud Batch API OK:', data);
+      return {
+        success: true,
+        queued: data.queued || count,
+        taskIds: data.taskIds || []
+      };
+    } else {
+      var errorDetail = '雲端伺服器拒絕 (HTTP ' + resp.status + ')';
+      try {
+        var errJson = await resp.json();
+        if (errJson && errJson.error) {
+          errorDetail += ' - ' + errJson.error;
+        }
+      } catch (parseErr) {}
+      return { success: false, error: errorDetail };
+    }
+  } catch (e) {
+    console.warn('[CineShot BG] Cloud Batch API failed, trying local:', e);
+  }
+
+  // 2. Fallback to local API
+  try {
+    var respLocal = await fetch(LOCAL_BATCH_API, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify(payload)
+    });
+    if (respLocal.ok) {
+      var dataLocal = await respLocal.json();
+      return {
+        success: true,
+        queued: dataLocal.queued || count,
+        taskIds: dataLocal.taskIds || []
+      };
+    }
+  } catch (e2) {
+    console.error('[CineShot BG] Local Batch API failed:', e2);
+  }
+
+  return { success: false, error: '無法連線到 CineShot 伺服器' };
+}
+
 // Log when service worker starts
-console.log('[CineShot BG] Service worker started successfully.');
+console.log('[CineShot BG] Service worker started successfully with batch support.');

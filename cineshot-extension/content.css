@@ -1,9 +1,22 @@
 /* CineShot Sniffer UI - Premium Cinematic Dark Gold Styling */
-#cineshot-sniffer-btn {
+
+/* Floating Dock Container */
+#cineshot-sniffer-dock {
   position: fixed;
   bottom: 28px;
   right: 28px;
   z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* Button Base Styles */
+#cineshot-sniffer-btn,
+#cineshot-batch-btn {
+  pointer-events: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -24,17 +37,42 @@
   user-select: none;
 }
 
-#cineshot-sniffer-btn:hover {
+#cineshot-sniffer-btn:hover,
+#cineshot-batch-btn:hover {
   background: rgba(26, 30, 42, 0.95);
   border-color: #e5a93b;
   transform: translateY(-2px) scale(1.02);
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.7), 0 0 24px rgba(229, 169, 59, 0.45);
 }
 
-#cineshot-sniffer-btn:active {
+#cineshot-sniffer-btn:active,
+#cineshot-batch-btn:active {
   transform: translateY(0) scale(0.98);
 }
 
+/* Batch Button Accent */
+#cineshot-batch-btn {
+  background: rgba(20, 24, 36, 0.92);
+  border-color: rgba(229, 169, 59, 0.55);
+}
+
+#cineshot-batch-btn .cs-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+#cineshot-batch-btn .cs-badge {
+  background: rgba(229, 169, 59, 0.22);
+  color: #ffc453;
+  border: 1px solid rgba(229, 169, 59, 0.4);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 9999px;
+  margin-left: 2px;
+}
+
+/* Single Sniffer Button Accent */
 #cineshot-sniffer-btn .cs-icon {
   font-size: 16px;
   line-height: 1;
@@ -42,7 +80,8 @@
   animation: cs-gold-pulse 2s infinite ease-in-out;
 }
 
-#cineshot-sniffer-btn .cs-text {
+#cineshot-sniffer-btn .cs-text,
+#cineshot-batch-btn .cs-text {
   color: #ffffff;
 }
 
@@ -56,13 +95,16 @@
   font-family: monospace;
 }
 
-#cineshot-sniffer-btn.cs-loading {
+/* Loading & Success States */
+#cineshot-sniffer-btn.cs-loading,
+#cineshot-batch-btn.cs-loading {
   pointer-events: none;
   border-color: #60a5fa;
   box-shadow: 0 0 20px rgba(96, 165, 250, 0.3);
 }
 
-#cineshot-sniffer-btn.cs-success {
+#cineshot-sniffer-btn.cs-success,
+#cineshot-batch-btn.cs-success {
   pointer-events: none;
   background: rgba(16, 185, 129, 0.25);
   border-color: #10b981;
@@ -76,7 +118,7 @@
   top: 30px;
   right: 30px;
   z-index: 2147483647;
-  max-width: 380px;
+  max-width: 400px;
   padding: 16px 20px;
   background: rgba(15, 17, 23, 0.94);
   backdrop-filter: blur(20px);
@@ -119,6 +161,7 @@
   font-size: 11px;
   color: #94a3b8;
   line-height: 1.5;
+  white-space: pre-line;
 }
 
 @keyframes cs-gold-pulse {
