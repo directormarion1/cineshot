@@ -343,7 +343,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
                         out_path = os.path.join(VIDEOS_DIR, out_filename)
                         ydl_opts = {
-                            'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
+                            'format': 'best[ext=mp4][height<=1080]/18/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best',
                             'outtmpl': out_path,
                             'quiet': True,
                             'no_warnings': True,
@@ -474,6 +474,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                                 is_direct_stream = True
                             except Exception as e:
                                 print(f"[Bilibili Native Error] {e}")
+                                INGEST_TASKS[t_id]['bili_error'] = str(e)
                                 is_direct_stream = False
                         elif is_xpc_cdn and page_url and 'xinpianchang.com' in page_url:
                             print(f"[XPC] CDN URL IP-bound, re-extracting via yt-dlp: {page_url[:80]}")
@@ -506,7 +507,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                             # YouTube, Bilibili, Vimeo, etc.
                             import yt_dlp
                             ydl_opts = {
-                                'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
+                                'format': 'best[ext=mp4][height<=1080]/18/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best',
                                 'outtmpl': out_path,
                                 'quiet': True,
                                 'no_warnings': True,
