@@ -303,7 +303,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                             'outtmpl': out_path,
                             'quiet': True,
                             'no_warnings': True,
-                            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                            'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
                         }
                         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                             ydl.download([v_url])
@@ -449,7 +449,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                                 'outtmpl': out_path,
                                 'quiet': True,
                                 'no_warnings': True,
-                                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
                             }
                             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                                 ydl.download([v_url])

@@ -132,7 +132,7 @@ def download_and_ingest_url(url, pipeline_func):
             ydl_info_opts = {
                 'quiet': True,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
             }
             with yt_dlp.YoutubeDL(ydl_info_opts) as ydl_single:
                 detail = ydl_single.extract_info(v_url, download=False)
@@ -161,7 +161,7 @@ def download_and_ingest_url(url, pipeline_func):
             'outtmpl': out_path,
             'quiet': False,
             'no_warnings': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+            'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
         }
 
         try:

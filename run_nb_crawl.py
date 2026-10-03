@@ -37,7 +37,7 @@ def run():
                 'outtmpl': out_path,
                 'quiet': False,
                 'no_warnings': True,
-                'extractor_args': {'youtube': {'player_client': ['android', 'web']}}
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
             }
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
