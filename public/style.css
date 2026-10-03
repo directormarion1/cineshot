@@ -578,9 +578,25 @@ body.dark-theme {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
-  background-color: #000;
+  background: linear-gradient(90deg, #14161f 0%, #202433 50%, #14161f 100%);
+  background-size: 200% 100%;
+  animation: cs-skeleton-shimmer 1.8s infinite ease-in-out;
   cursor: pointer;
   overflow: hidden;
+}
+
+.video-frame-wrap.loaded {
+  animation: none;
+  background-color: #0b0c10;
+}
+
+@keyframes cs-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .shot-card-video {

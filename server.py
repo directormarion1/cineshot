@@ -18,6 +18,7 @@ import time
 import re
 import socket
 import ipaddress
+import subprocess
 
 PORT = int(os.environ.get('PORT', 8765))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,17 +36,62 @@ else:
 
 if STORAGE_DIR == '/data' or os.environ.get('DATA_DIR'):
     VIDEOS_DIR = os.path.join(STORAGE_DIR, 'videos')
+    POSTERS_DIR = os.path.join(STORAGE_DIR, 'posters')
     DATA_FILE = os.path.join(STORAGE_DIR, 'clips.json')
 else:
     VIDEOS_DIR = os.path.join(PUBLIC_DIR, 'videos')
+    POSTERS_DIR = os.path.join(PUBLIC_DIR, 'posters')
     DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
 
 INGEST_TOKEN = os.environ.get('INGEST_TOKEN', '')
 INGEST_TASKS = {}
 
+def backfill_posters():
+    """Generate missing posters for existing clips in DATA_FILE using ffmpeg"""
+    ffmpeg_bin = shutil.which('ffmpeg')
+    if not ffmpeg_bin or not os.path.exists(DATA_FILE):
+        return
+    try:
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            clips = json.load(f)
+        updated = False
+        for c in clips:
+            if not isinstance(c, dict): continue
+            clip_id = c.get('id')
+            poster_url = c.get('posterUrl')
+            poster_name = f"{clip_id}.jpg"
+            poster_path = os.path.join(POSTERS_DIR, poster_name)
+
+            if not poster_url or not os.path.exists(poster_path):
+                preview = c.get('previewUrl', '')
+                if preview.startswith('/videos/'):
+                    v_name = preview[len('/videos/'):].lstrip('/')
+                    v_path = os.path.join(VIDEOS_DIR, v_name)
+                    if os.path.exists(v_path):
+                        start_time = max(0, float(c.get('startTime', 0)))
+                        cmd = [
+                            ffmpeg_bin, '-y',
+                            '-ss', str(start_time),
+                            '-i', v_path,
+                            '-vframes', '1',
+                            '-q:v', '2',
+                            poster_path
+                        ]
+                        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+                        if os.path.exists(poster_path) and os.path.getsize(poster_path) > 0:
+                            c['posterUrl'] = f"/posters/{poster_name}"
+                            updated = True
+        if updated:
+            with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(clips, f, ensure_ascii=False, indent=2)
+            print(f"[Poster Backfill] Generated missing posters for clips in {DATA_FILE}")
+    except Exception as e:
+        print(f"[Poster Backfill Warning] {e}")
+
 def init_storage():
     """Ensure persistent volume is initialized and incrementally sync new files from image"""
     os.makedirs(VIDEOS_DIR, exist_ok=True)
+    os.makedirs(POSTERS_DIR, exist_ok=True)
 
     # 1. Sync clips.json: seed if missing, or merge newly pushed clips by id
     src_clips = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
@@ -89,6 +135,22 @@ def init_storage():
                 print(f"[Volume Init] Persistent storage up-to-date ({total_videos} videos in {VIDEOS_DIR}).")
         except Exception as e:
             print(f"[Volume Init Warning] Failed to incrementally sync videos: {e}")
+
+    # 3. Incremental sync for posters: copy any file in public/posters that is missing in POSTERS_DIR
+    src_posters_dir = os.path.join(PUBLIC_DIR, 'posters')
+    if os.path.exists(src_posters_dir) and os.path.abspath(src_posters_dir) != os.path.abspath(POSTERS_DIR):
+        try:
+            for fname in os.listdir(src_posters_dir):
+                if fname.startswith('.'): continue
+                s_file = os.path.join(src_posters_dir, fname)
+                d_file = os.path.join(POSTERS_DIR, fname)
+                if os.path.isfile(s_file) and not os.path.exists(d_file):
+                    shutil.copyfile(s_file, d_file)
+        except Exception as e:
+            print(f"[Volume Init Warning] Failed to incrementally sync posters: {e}")
+
+    # 4. Generate missing posters for clips
+    backfill_posters()
 
 def get_bilibili_stream(bvid):
     """Fetch high-quality direct mp4 stream for Bilibili videos via official player API"""
@@ -344,6 +406,14 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             rel = clean_path[len('/videos'):].lstrip('/')
             safe_path = os.path.abspath(os.path.join(VIDEOS_DIR, rel))
             if safe_path.startswith(os.path.abspath(VIDEOS_DIR)):
+                return safe_path
+            return ""
+
+        # Route /posters/ to POSTERS_DIR (persistent volume)
+        if clean_path.startswith('/posters'):
+            rel = clean_path[len('/posters'):].lstrip('/')
+            safe_path = os.path.abspath(os.path.join(POSTERS_DIR, rel))
+            if safe_path.startswith(os.path.abspath(POSTERS_DIR)):
                 return safe_path
             return ""
 

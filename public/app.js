@@ -723,13 +723,15 @@ function renderVideoGrid(query) {
     card.dataset.id = clip.id;
 
     card.innerHTML = `
-      <div class="video-frame-wrap" title="點擊檢視視聽語言參數">
+      <div class="video-frame-wrap ${clip.posterUrl ? 'loaded' : ''}" title="點擊檢視視聽語言參數">
         <video 
           class="shot-card-video" 
-          src="${clip.previewUrl}#t=${(clip.startTime || 0) + 0.1}" 
+          src="${clip.previewUrl}" 
+          poster="${clip.posterUrl || ''}"
           playsinline 
           muted 
           preload="metadata"
+          loading="lazy"
         ></video>
 
         <div class="overlay-top-tags">
@@ -771,6 +773,10 @@ function renderVideoGrid(query) {
     const start = clip.startTime || 0;
     const end = clip.endTime || 5;
 
+    video.addEventListener('loadeddata', () => {
+      frameWrap.classList.add('loaded');
+    });
+
     video.addEventListener('timeupdate', () => {
       if (video.currentTime >= end) {
         video.currentTime = start;
@@ -786,6 +792,7 @@ function renderVideoGrid(query) {
 
     frameWrap.addEventListener('mouseleave', () => {
       video.pause();
+      video.currentTime = start;
     });
 
     frameWrap.addEventListener('click', (e) => {
@@ -843,7 +850,7 @@ function updateCanvasUI() {
     itemEl.innerHTML = `
       <span class="canvas-card-num">#${String(index + 1).padStart(2, '0')}</span>
       <div class="canvas-card-thumb">
-        <video src="${item.previewUrl}#t=${item.startTime || 0},${item.endTime || 5}" muted loop autoplay playsinline preload="metadata"></video>
+        <video src="${item.previewUrl}" poster="${item.posterUrl || ''}" muted loop autoplay playsinline preload="metadata" loading="lazy"></video>
       </div>
       <div class="canvas-card-meta">
         <span class="canvas-card-title">${item.title}</span>
@@ -855,6 +862,9 @@ function updateCanvasUI() {
     const v = itemEl.querySelector('video');
     const start = item.startTime || 0;
     const end = item.endTime || 5;
+    v.addEventListener('loadedmetadata', () => {
+      v.currentTime = start;
+    });
     v.addEventListener('timeupdate', () => {
       if (v.currentTime >= end) v.currentTime = start;
     });
@@ -888,7 +898,7 @@ function openDetailModal(clip) {
 
   modalBody.innerHTML = `
     <div style="background: #000; position: relative;">
-      <video id="modalVideoPlayer" src="${clip.previewUrl}#t=${start}" controls playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
+      <video id="modalVideoPlayer" src="${clip.previewUrl}" poster="${clip.posterUrl || ''}" controls playsinline preload="auto" style="width: 100%; max-height: 420px; display: block; object-fit: contain;"></video>
     </div>
     <div style="padding: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
@@ -1072,7 +1082,7 @@ function setupCanvasListeners() {
       <div style="display: flex; gap: 20px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #2E323E; break-inside: avoid;">
         <div style="font-family: monospace; font-size: 20px; font-weight: bold; color: #F59E0B; width: 44px;">#${String(idx + 1).padStart(2, '0')}</div>
         <div style="width: 240px; height: 135px; background: #000; border-radius: 6px; overflow: hidden; flex-shrink: 0;">
-          <video src="${item.previewUrl}" style="width: 100%; height: 100%; object-fit: cover;" autoplay muted loop></video>
+          ${item.posterUrl ? `<img src="${item.posterUrl}" style="width: 100%; height: 100%; object-fit: cover; display: block;" />` : `<video src="${item.previewUrl}" style="width: 100%; height: 100%; object-fit: cover;" autoplay muted loop></video>`}
         </div>
         <div style="flex: 1;">
           <div style="font-size: 16px; font-weight: bold; color: #FFF; margin-bottom: 6px;">${item.title}</div>

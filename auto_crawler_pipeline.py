@@ -12,6 +12,7 @@ import urllib.request
 import urllib.error
 import mimetypes
 import shutil
+import subprocess
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
@@ -28,15 +29,61 @@ else:
 
 if STORAGE_DIR == '/data' or os.environ.get('DATA_DIR'):
     VIDEOS_DIR = os.path.join(STORAGE_DIR, 'videos')
+    POSTERS_DIR = os.path.join(STORAGE_DIR, 'posters')
     DATA_FILE = os.path.join(STORAGE_DIR, 'clips.json')
 else:
     VIDEOS_DIR = os.path.join(PUBLIC_DIR, 'videos')
+    POSTERS_DIR = os.path.join(PUBLIC_DIR, 'posters')
     DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
 
 TEMP_DIR = os.path.join(BASE_DIR, 'tmp_downloads')
 
 os.makedirs(VIDEOS_DIR, exist_ok=True)
+os.makedirs(POSTERS_DIR, exist_ok=True)
 os.makedirs(TEMP_DIR, exist_ok=True)
+
+def get_video_duration(video_path):
+    """Retrieve video duration in seconds via ffprobe"""
+    ffprobe_bin = shutil.which('ffprobe')
+    if not ffprobe_bin:
+        return None
+    try:
+        cmd = [
+            ffprobe_bin, '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            video_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
+        return float(res.stdout.strip())
+    except Exception:
+        return None
+
+def generate_poster(video_path, start_time, poster_path):
+    """Generate high quality JPG poster at start_time using ffmpeg"""
+    ffmpeg_bin = shutil.which('ffmpeg')
+    if not ffmpeg_bin:
+        return False
+    try:
+        os.makedirs(os.path.dirname(poster_path), exist_ok=True)
+        cmd = [
+            ffmpeg_bin, '-y',
+            '-ss', str(max(0, float(start_time))),
+            '-i', video_path,
+            '-vframes', '1',
+            '-q:v', '2',
+            poster_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+        if os.path.exists(poster_path) and os.path.getsize(poster_path) > 0:
+            return True
+        if float(start_time) > 0:
+            cmd[3] = '0'
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            return os.path.exists(poster_path) and os.path.getsize(poster_path) > 0
+    except Exception as e:
+        print(f"[Poster Warning] Error generating {poster_path}: {e}")
+    return False
 
 def get_gemini_api_key():
     """Retrieve Gemini API Key from environment or .env file"""
@@ -178,7 +225,7 @@ def analyze_video_with_gemini(video_path, api_key, title="商業廣告", client=
         print(f"[錯誤] AI 分析失敗: {e}")
         return []
 
-def merge_shots_into_database(new_shots, video_relative_url, title, client, director="商業導演", region="全球精選"):
+def merge_shots_into_database(new_shots, video_relative_url, title, client, director="商業導演", region="全球精選", video_full_path=None):
     """Appends extracted shots into clips.json"""
     existing_clips = []
     if os.path.exists(DATA_FILE):
@@ -191,6 +238,14 @@ def merge_shots_into_database(new_shots, video_relative_url, title, client, dire
     added_count = 0
     for s in new_shots:
         clip_id = f"ai_shot_{int(time.time())}_{added_count}"
+        start_time = s.get('startTime', 0)
+        poster_url = ""
+        if video_full_path and os.path.exists(video_full_path):
+            poster_name = f"{clip_id}.jpg"
+            poster_dest = os.path.join(POSTERS_DIR, poster_name)
+            if generate_poster(video_full_path, start_time, poster_dest):
+                poster_url = f"/posters/{poster_name}"
+
         new_entry = {
             "id": clip_id,
             "title": f"{title} - ({s.get('actionTag')})",
@@ -203,9 +258,9 @@ def merge_shots_into_database(new_shots, video_relative_url, title, client, dire
             "resolution": "4K",
             "duration": "1-5分鐘",
             "tier": "全球精選",
-            "startTime": s.get('startTime', 0),
+            "startTime": start_time,
             "endTime": s.get('endTime', 5),
-            "timecode": s.get('timecode', f"{s.get('startTime')}s - {s.get('endTime')}s"),
+            "timecode": s.get('timecode', f"{start_time}s - {s.get('endTime')}s"),
             "actionTag": s.get('actionTag', '精彩分鏡'),
             "motion": s.get('motion', '常規運鏡'),
             "lighting": s.get('lighting', '自然光'),
@@ -213,6 +268,7 @@ def merge_shots_into_database(new_shots, video_relative_url, title, client, dire
             "mood": s.get('mood', '情緒張力'),
             "queryMatch": s.get('tags', []) + [s.get('actionTag', ''), title, client, 'AI自動分析'],
             "previewUrl": video_relative_url,
+            "posterUrl": poster_url,
             "sourceUrl": title,
             "notes": s.get('notes', '由 Gemini 多模態 AI 自動深度拉片生成')
         }
@@ -238,16 +294,23 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
     video_path = os.path.abspath(video_path)
     if os.path.commonpath([video_path, VIDEOS_DIR]) == VIDEOS_DIR:
         relative_url = f"/videos/{os.path.basename(video_path)}"
+        actual_video_path = video_path
     else:
         shutil.copyfile(video_path, dest_path)
         relative_url = f"/videos/{dest_name}"
+        actual_video_path = dest_path
+
+    # ffprobe duration check
+    duration = get_video_duration(actual_video_path)
+    if duration is not None:
+        print(f"[ffprobe] 影片總時長: {duration:.2f} 秒")
 
     shots = analyze_video_with_gemini(video_path, api_key, title, client)
     if shots:
         print(f"\n✨ [AI 拉片大成功] Gemini 共提取出 {len(shots)} 個高價值微鏡頭：")
         for idx, shot in enumerate(shots, 1):
             print(f"  #{idx:02d} [{shot.get('timecode')}] {shot.get('actionTag')} ｜ {shot.get('motion')} ｜ 光影: {shot.get('lighting')} ({shot.get('mood')})")
-        merge_shots_into_database(shots, relative_url, title, client)
+        merge_shots_into_database(shots, relative_url, title, client, video_full_path=actual_video_path)
         return shots
     else:
         print("🛡️ [磁碟保護] 該影片未提取到有效鏡頭或被 AI 質檢員拒收，已自動清理磁碟空間。")
