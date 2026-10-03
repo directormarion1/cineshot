@@ -42,35 +42,51 @@ INGEST_TOKEN = os.environ.get('INGEST_TOKEN', '')
 INGEST_TASKS = {}
 
 def init_storage():
-    """Ensure persistent volume is initialized and seed initial data if empty"""
+    """Ensure persistent volume is initialized and incrementally sync new files from image"""
     os.makedirs(VIDEOS_DIR, exist_ok=True)
 
-    # 1. Seed clips.json if not present in persistent storage
+    # 1. Sync clips.json: seed if missing, or merge newly pushed clips by id
     src_clips = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
-    if not os.path.exists(DATA_FILE) and os.path.exists(src_clips):
+    if os.path.exists(src_clips) and os.path.abspath(src_clips) != os.path.abspath(DATA_FILE):
         try:
             os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
-            shutil.copyfile(src_clips, DATA_FILE)
-            print(f"[Volume Init] Copied initial clips.json to {DATA_FILE}")
+            if not os.path.exists(DATA_FILE):
+                shutil.copyfile(src_clips, DATA_FILE)
+                print(f"[Volume Init] Copied initial clips.json to {DATA_FILE}")
+            else:
+                with open(src_clips, 'r', encoding='utf-8') as sf, open(DATA_FILE, 'r', encoding='utf-8') as df:
+                    src_data = json.load(sf)
+                    dst_data = json.load(df)
+                existing_ids = {c.get('id') for c in dst_data if isinstance(c, dict)}
+                new_clips = [c for c in src_data if isinstance(c, dict) and c.get('id') not in existing_ids]
+                if new_clips:
+                    dst_data.extend(new_clips)
+                    with open(DATA_FILE, 'w', encoding='utf-8') as df:
+                        json.dump(dst_data, df, ensure_ascii=False, indent=2)
+                    print(f"[Volume Init] Incremental sync: merged {len(new_clips)} new clips into {DATA_FILE}")
         except Exception as e:
-            print(f"[Volume Init Warning] Failed to copy clips.json: {e}")
+            print(f"[Volume Init Warning] Failed to sync clips.json: {e}")
 
-    # 2. Seed initial demo videos if persistent videos directory is empty
+    # 2. Incremental sync for videos: copy any file in public/videos that is missing in VIDEOS_DIR
     src_videos_dir = os.path.join(PUBLIC_DIR, 'videos')
     if os.path.exists(src_videos_dir) and os.path.abspath(src_videos_dir) != os.path.abspath(VIDEOS_DIR):
         try:
-            existing_videos = [f for f in os.listdir(VIDEOS_DIR) if not f.startswith('.')]
-            if not existing_videos:
-                for fname in os.listdir(src_videos_dir):
-                    s_file = os.path.join(src_videos_dir, fname)
-                    d_file = os.path.join(VIDEOS_DIR, fname)
-                    if os.path.isfile(s_file):
-                        shutil.copyfile(s_file, d_file)
-                print(f"[Volume Init] Seeded initial demo videos from {src_videos_dir} into {VIDEOS_DIR}")
+            copied_count = 0
+            for fname in os.listdir(src_videos_dir):
+                if fname.startswith('.'):
+                    continue
+                s_file = os.path.join(src_videos_dir, fname)
+                d_file = os.path.join(VIDEOS_DIR, fname)
+                if os.path.isfile(s_file) and not os.path.exists(d_file):
+                    shutil.copyfile(s_file, d_file)
+                    copied_count += 1
+            if copied_count > 0:
+                print(f"[Volume Init] Incremental sync: copied {copied_count} new video(s) into {VIDEOS_DIR}")
             else:
-                print(f"[Volume Init] Persistent storage already contains {len(existing_videos)} videos.")
+                total_videos = len([f for f in os.listdir(VIDEOS_DIR) if not f.startswith('.')])
+                print(f"[Volume Init] Persistent storage up-to-date ({total_videos} videos in {VIDEOS_DIR}).")
         except Exception as e:
-            print(f"[Volume Init Warning] Failed to seed demo videos: {e}")
+            print(f"[Volume Init Warning] Failed to incrementally sync videos: {e}")
 
 class RangeFileWrapper:
     """Wrapper that limits reads to a specific byte length for HTTP 206 Partial Content"""
