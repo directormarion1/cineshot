@@ -353,7 +353,12 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                             print(f"[Direct CDN Stream] Downloading from {v_url[:80]}...")
                             req = urllib.request.Request(
                                 v_url, 
-                                headers={'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'}
+                                headers={
+                                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                    'Referer': 'https://www.xinpianchang.com/',
+                                    'Accept': '*/*',
+                                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                                }
                             )
                             with urllib.request.urlopen(req, timeout=120) as resp, open(out_path, 'wb') as out_f:
                                 shutil.copyfileobj(resp, out_f)
