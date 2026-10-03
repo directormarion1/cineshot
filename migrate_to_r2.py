@@ -64,6 +64,11 @@ def run_migration(overwrite=False, logger_func=print):
         logger_func(f"📹 Found {len(video_files)} video files in {VIDEOS_DIR} to sync...")
         for idx, fname in enumerate(video_files, 1):
             fpath = os.path.join(VIDEOS_DIR, fname)
+            try:
+                from auto_crawler_pipeline import ensure_h264_compatibility
+                fpath = ensure_h264_compatibility(fpath)
+            except Exception:
+                pass
             logger_func(f"  [{idx}/{len(video_files)}] Uploading video: {fname} ({os.path.getsize(fpath) / (1024*1024):.1f} MB)...")
             res_url = upload_file_to_r2(fpath, f"videos/{fname}", content_type="video/mp4", overwrite=overwrite)
             if res_url:

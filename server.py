@@ -327,7 +327,7 @@ def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
             # YouTube, Bilibili, Vimeo, etc.
             import yt_dlp
             ydl_opts = {
-                'format': 'best[ext=mp4][height<=1080]/18/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best',
+                'format': 'bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[vcodec^=avc1][height<=1080]/b',
                 'outtmpl': out_path,
                 'quiet': True,
                 'no_warnings': True,
@@ -613,7 +613,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
                         out_path = os.path.join(VIDEOS_DIR, out_filename)
                         ydl_opts = {
-                            'format': 'best[ext=mp4][height<=1080]/18/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best',
+                            'format': 'bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[vcodec^=avc1][height<=1080]/b',
                             'outtmpl': out_path,
                             'quiet': True,
                             'no_warnings': True,

@@ -33,7 +33,7 @@ def run():
         
         if not os.path.exists(out_path):
             ydl_opts = {
-                'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
+                'format': 'bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[vcodec^=avc1][height<=1080]/b',
                 'outtmpl': out_path,
                 'quiet': False,
                 'no_warnings': True,

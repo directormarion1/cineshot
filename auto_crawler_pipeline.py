@@ -86,6 +86,59 @@ def generate_poster(video_path, start_time, poster_path):
         print(f"[Poster Warning] Error generating {poster_path}: {e}")
     return False
 
+def ensure_h264_compatibility(video_path):
+    """
+    Checks if video is encoded in H.264 via ffprobe.
+    If not (e.g. AV1, VP9, HEVC), transcodes to H.264 (yuv420p) + AAC with faststart for Safari/iOS compatibility.
+    """
+    ffprobe_bin = shutil.which('ffprobe')
+    ffmpeg_bin = shutil.which('ffmpeg')
+    if not ffprobe_bin or not ffmpeg_bin or not os.path.exists(video_path):
+        return video_path
+
+    try:
+        cmd = [
+            ffprobe_bin, '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=codec_name',
+            '-of', 'default=noprint_wrappers=1:nokey=1',
+            video_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=10)
+        codec = res.stdout.strip().lower()
+        if codec == 'h264':
+            return video_path
+
+        print(f"[Safari 相容性] 檢測到視頻編碼為 '{codec}'（非 H.264），啟動 ffmpeg 自動轉碼為 H.264 (avc1 + yuv420p + faststart)...")
+        tmp_transcoded = video_path + '.h264.mp4'
+        transcode_cmd = [
+            ffmpeg_bin, '-y',
+            '-i', video_path,
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-preset', 'fast',
+            '-crf', '23',
+            '-c:a', 'aac',
+            '-b:a', '128k',
+            '-movflags', '+faststart',
+            tmp_transcoded
+        ]
+        t_res = subprocess.run(transcode_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
+        if t_res.returncode == 0 and os.path.exists(tmp_transcoded) and os.path.getsize(tmp_transcoded) > 0:
+            shutil.move(tmp_transcoded, video_path)
+            print(f"[Safari 相容性] 轉碼完成！視頻已升級為 Safari / iOS / Chrome 全平臺硬解格式。")
+            return video_path
+        else:
+            if os.path.exists(tmp_transcoded):
+                try:
+                    os.remove(tmp_transcoded)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[Safari 相容性警告] 轉碼檢測異常: {e}")
+
+    return video_path
+
 def get_gemini_api_key():
     """Retrieve Gemini API Key from environment or .env file"""
     api_key = os.environ.get('GEMINI_API_KEY')
@@ -318,7 +371,10 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
     if duration is not None:
         print(f"[ffprobe] 影片總時長: {duration:.2f} 秒")
 
-    shots = analyze_video_with_gemini(video_path, api_key, title, client)
+    # Safari & iOS compatibility check & transcode fallback (H.264 / AAC / faststart)
+    actual_video_path = ensure_h264_compatibility(actual_video_path)
+
+    shots = analyze_video_with_gemini(actual_video_path, api_key, title, client)
     if shots:
         print(f"\n✨ [AI 拉片大成功] Gemini 共提取出 {len(shots)} 個高價值微鏡頭：")
         for idx, shot in enumerate(shots, 1):
