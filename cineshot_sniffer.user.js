@@ -165,7 +165,9 @@
     }
 
     showToast('loading', title, '⚡ 正在將影片發送至 CineShot 雲端 AI 機房...');
-    const payload = JSON.stringify({ videoUrl: targetUrl, streamUrl: videoUrl, pageUrl, title, client });
+    const cleanStreamUrl = (videoUrl && !videoUrl.startsWith('blob:')) ? videoUrl : '';
+    const cleanVideoUrl = (targetUrl && !targetUrl.startsWith('blob:')) ? targetUrl : '';
+    const payload = JSON.stringify({ videoUrl: cleanVideoUrl, streamUrl: cleanStreamUrl, pageUrl, title, client });
 
     const sendRequest = (apiUrl) => new Promise((resolve) => {
       if (typeof GM_xmlhttpRequest !== 'undefined') {

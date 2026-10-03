@@ -176,9 +176,12 @@
 
     showToast('loading', meta.title, '⚡ 正在將影片發送至 CineShot 雲端 AI 機房...');
 
+    var cleanStreamUrl = (videoUrl && !videoUrl.startsWith('blob:')) ? videoUrl : '';
+    var cleanVideoUrl = (targetUrl && !targetUrl.startsWith('blob:')) ? targetUrl : '';
+
     var payload = {
-      videoUrl: targetUrl,
-      streamUrl: videoUrl,
+      videoUrl: cleanVideoUrl,
+      streamUrl: cleanStreamUrl,
       pageUrl: pageUrl,
       title: meta.title,
       client: meta.client

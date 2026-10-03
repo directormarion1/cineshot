@@ -384,8 +384,11 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             body = self.rfile.read(length)
             try:
                 payload = json.loads(body.decode('utf-8'))
-                video_url = payload.get('videoUrl') or payload.get('streamUrl') or payload.get('pageUrl')
+                candidates = [payload.get('videoUrl'), payload.get('streamUrl'), payload.get('pageUrl')]
+                video_url = next((u for u in candidates if u and isinstance(u, str) and not u.strip().startswith('blob:')), '')
                 page_url = payload.get('pageUrl', '')
+                if page_url and page_url.strip().startswith('blob:'):
+                    page_url = ''
                 title = payload.get('title', '精選影視短片')
                 client = payload.get('client', '品牌專題')
 
