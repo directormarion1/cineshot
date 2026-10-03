@@ -116,6 +116,115 @@ def get_bilibili_stream(bvid):
         stream_url = durl[0]['url']
     return stream_url, title, owner
 
+def trim_ingest_tasks():
+    while len(INGEST_TASKS) > 100:
+        keys_to_remove = [k for k, v in INGEST_TASKS.items() if v.get('status') in ('done', 'error')]
+        if keys_to_remove:
+            del INGEST_TASKS[keys_to_remove[0]]
+        else:
+            oldest_key = next(iter(INGEST_TASKS))
+            del INGEST_TASKS[oldest_key]
+
+def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
+    print(f"[ingest] v_url={v_url[:100] if v_url else 'EMPTY'} page_url={page_url[:100] if page_url else 'EMPTY'}")
+    if not v_url and page_url:
+        v_url = page_url
+
+    if t_id in INGEST_TASKS:
+        INGEST_TASKS[t_id]['status'] = 'downloading'
+        INGEST_TASKS[t_id]['progress'] = '正在下載影片串流...'
+
+    try:
+        clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
+        out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
+        out_path = os.path.join(VIDEOS_DIR, out_filename)
+
+        # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
+        v_url = v_url or ''
+        is_xpc_cdn = bool(v_url and ('oss-xpc' in v_url or 'xpc0' in v_url or 'xpccdn.com' in v_url))
+
+        # Check if URL is Bilibili (bypass yt-dlp 412 bot check)
+        bili_match = (re.search(r'(BV[a-zA-Z0-9]+)', v_url or '')
+                      or re.search(r'(BV[a-zA-Z0-9]+)', page_url or ''))
+        if bili_match:
+            try:
+                bvid = bili_match.group(1)
+                print(f"[Bilibili Native] Resolving {bvid} via official playurl API...")
+                s_url, b_title, b_owner = get_bilibili_stream(bvid)
+                v_url = s_url
+                if not v_title or v_title == '精選影視短片':
+                    v_title = b_title
+                if not v_client or v_client == '品牌專題':
+                    v_client = b_owner
+                if t_id in INGEST_TASKS:
+                    INGEST_TASKS[t_id]['title'] = v_title
+                    INGEST_TASKS[t_id]['client'] = v_client
+                is_direct_stream = True
+            except Exception as e:
+                print(f"[Bilibili Native Error] {e}")
+                if t_id in INGEST_TASKS:
+                    INGEST_TASKS[t_id]['bili_error'] = str(e)
+                is_direct_stream = False
+        elif is_xpc_cdn and page_url and 'xinpianchang.com' in page_url:
+            print(f"[XPC] CDN URL IP-bound, re-extracting via yt-dlp: {page_url[:80]}")
+            v_url = page_url
+            is_direct_stream = False
+        else:
+            is_direct_stream = (
+                'xpccdn.com' in v_url or 
+                'vod.xinpianchang.com' in v_url or 
+                'bilivideo.com' in v_url or
+                v_url.split('?')[0].endswith('.mp4')
+            )
+
+        if is_direct_stream:
+            referer = 'https://www.bilibili.com/' if ('bilivideo.com' in v_url or 'bilibili.com' in v_url) else 'https://www.xinpianchang.com/'
+            print(f"[Direct CDN Stream] Downloading from {v_url[:80]}...")
+            req = urllib.request.Request(
+                v_url, 
+                headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Referer': referer,
+                    'Accept': '*/*',
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                }
+            )
+            with urllib.request.urlopen(req, timeout=120) as resp, open(out_path, 'wb') as out_f:
+                shutil.copyfileobj(resp, out_f)
+            print(f"[Direct CDN Stream] Download complete: {out_filename}")
+        else:
+            # YouTube, Bilibili, Vimeo, etc.
+            import yt_dlp
+            ydl_opts = {
+                'format': 'best[ext=mp4][height<=1080]/18/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best',
+                'outtmpl': out_path,
+                'quiet': True,
+                'no_warnings': True,
+                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([v_url])
+
+        # AI Analysis
+        if t_id in INGEST_TASKS:
+            INGEST_TASKS[t_id]['status'] = 'analyzing'
+            INGEST_TASKS[t_id]['progress'] = 'Gemini 正在逐幀視覺分析並拆解鏡頭...'
+
+        from auto_crawler_pipeline import process_single_video
+        shots = process_single_video(out_path, title=v_title, client=v_client)
+
+        if t_id in INGEST_TASKS:
+            INGEST_TASKS[t_id]['status'] = 'done'
+            INGEST_TASKS[t_id]['progress'] = f'AI 拆解完成！成功收錄 {len(shots) if shots else 0} 個鏡頭'
+            INGEST_TASKS[t_id]['shots'] = len(shots) if shots else 0
+        print(f"[Ingest Success] {v_title} -> {len(shots) if shots else 0} shots")
+
+    except Exception as e:
+        if t_id in INGEST_TASKS:
+            INGEST_TASKS[t_id]['status'] = 'error'
+            INGEST_TASKS[t_id]['progress'] = f'收錄失敗: {str(e)}'
+        print(f"[API Ingest Error] {e}")
+
 class RangeFileWrapper:
     """Wrapper that limits reads to a specific byte length for HTTP 206 Partial Content"""
     def __init__(self, file_obj, length):
@@ -323,7 +432,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            self.wfile.write(json.dumps(list(INGEST_TASKS.values())[-10:]).encode('utf-8'))
+            self.wfile.write(json.dumps(list(INGEST_TASKS.values())[-50:]).encode('utf-8'))
             return
 
         # Bookmarklet: True 1-Click Ingestion
@@ -416,12 +525,13 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, X-CineShot-Token')
         self.end_headers()
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
         if path == '/api/ingest':
             if not self.check_ingest_token():
                 return
@@ -434,8 +544,8 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                 page_url = payload.get('pageUrl', '')
                 if page_url and page_url.strip().startswith('blob:'):
                     page_url = ''
-                title = payload.get('title', '精選影視短片')
-                client = payload.get('client', '品牌專題')
+                title = payload.get('title') or '精選影視短片'
+                client = payload.get('client') or '品牌專題'
 
                 task_id = f"task_{int(time.time())}"
                 INGEST_TASKS[task_id] = {
@@ -447,94 +557,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     'time': time.time(),
                     'shots': 0
                 }
-                # Keep max 50 items to prevent unbounded memory growth
-                if len(INGEST_TASKS) > 50:
-                    oldest_key = next(iter(INGEST_TASKS))
-                    del INGEST_TASKS[oldest_key]
-
-                def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
-                    print(f"[ingest] v_url={v_url[:100] if v_url else 'EMPTY'} page_url={page_url[:100] if page_url else 'EMPTY'}")
-                    try:
-                        clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
-                        out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
-                        out_path = os.path.join(VIDEOS_DIR, out_filename)
-
-                        # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
-                        v_url = v_url or ''
-                        # Check if URL is Bilibili (bypass yt-dlp 412 bot check)
-                        bili_match = (re.search(r'(BV[a-zA-Z0-9]+)', v_url or '')
-                                      or re.search(r'(BV[a-zA-Z0-9]+)', page_url or ''))
-                        if bili_match:
-                            try:
-                                bvid = bili_match.group(1)
-                                print(f"[Bilibili Native] Resolving {bvid} via official playurl API...")
-                                s_url, b_title, b_owner = get_bilibili_stream(bvid)
-                                v_url = s_url
-                                if not v_title or v_title == '精選影視短片':
-                                    v_title = b_title
-                                if not v_client or v_client == '品牌專題':
-                                    v_client = b_owner
-                                is_direct_stream = True
-                            except Exception as e:
-                                print(f"[Bilibili Native Error] {e}")
-                                INGEST_TASKS[t_id]['bili_error'] = str(e)
-                                is_direct_stream = False
-                        elif is_xpc_cdn and page_url and 'xinpianchang.com' in page_url:
-                            print(f"[XPC] CDN URL IP-bound, re-extracting via yt-dlp: {page_url[:80]}")
-                            v_url = page_url
-                            is_direct_stream = False
-                        else:
-                            is_direct_stream = (
-                                'xpccdn.com' in v_url or 
-                                'vod.xinpianchang.com' in v_url or 
-                                'bilivideo.com' in v_url or
-                                v_url.split('?')[0].endswith('.mp4')
-                            )
-
-                        if is_direct_stream:
-                            referer = 'https://www.bilibili.com/' if ('bilivideo.com' in v_url or 'bilibili.com' in v_url) else 'https://www.xinpianchang.com/'
-                            print(f"[Direct CDN Stream] Downloading from {v_url[:80]}...")
-                            req = urllib.request.Request(
-                                v_url, 
-                                headers={
-                                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                                    'Referer': referer,
-                                    'Accept': '*/*',
-                                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-                                }
-                            )
-                            with urllib.request.urlopen(req, timeout=120) as resp, open(out_path, 'wb') as out_f:
-                                shutil.copyfileobj(resp, out_f)
-                            print(f"[Direct CDN Stream] Download complete: {out_filename}")
-                        else:
-                            # YouTube, Bilibili, Vimeo, etc.
-                            import yt_dlp
-                            ydl_opts = {
-                                'format': 'best[ext=mp4][height<=1080]/18/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best',
-                                'outtmpl': out_path,
-                                'quiet': True,
-                                'no_warnings': True,
-                                'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
-                            }
-                            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                                ydl.download([v_url])
-
-                        # AI Analysis
-                        INGEST_TASKS[t_id]['status'] = 'analyzing'
-                        INGEST_TASKS[t_id]['progress'] = 'Gemini 正在逐幀視覺分析並拆解鏡頭...'
-
-                        from auto_crawler_pipeline import process_single_video
-                        shots = process_single_video(out_path, title=v_title, client=v_client)
-
-                        INGEST_TASKS[t_id]['status'] = 'done'
-                        INGEST_TASKS[t_id]['progress'] = f'AI 拆解完成！成功收錄 {len(shots) if shots else 0} 個鏡頭'
-                        INGEST_TASKS[t_id]['shots'] = len(shots) if shots else 0
-                        print(f"[Ingest Success] {v_title} -> {len(shots) if shots else 0} shots")
-
-                    except Exception as e:
-                        INGEST_TASKS[t_id]['status'] = 'error'
-                        INGEST_TASKS[t_id]['progress'] = f'收錄失敗: {str(e)}'
-                        print(f"[API Ingest Error] {e}")
+                trim_ingest_tasks()
 
                 threading.Thread(target=run_ingest, args=(task_id, video_url, title, client, page_url), daemon=True).start()
 
@@ -546,7 +569,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     'status': 'queued',
                     'taskId': task_id,
                     'message': f'正在為您將《{title}》進行 AI 深度拉片與切片'
-                }).encode('utf-8'))
+                }, ensure_ascii=False).encode('utf-8'))
                 return
             except Exception as e:
                 self.send_response(500)
@@ -556,10 +579,85 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
                 return
 
+        if path == '/api/batch_ingest':
+            if not self.check_ingest_token():
+                return
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length)
+            try:
+                payload = json.loads(body.decode('utf-8'))
+                raw_videos = payload.get('videos', [])
+                if not isinstance(raw_videos, list):
+                    raw_videos = []
+
+                task_ids = []
+                batch_jobs = []
+                now = time.time()
+
+                for idx, item in enumerate(raw_videos):
+                    if not isinstance(item, dict):
+                        continue
+                    candidates = [item.get('videoUrl'), item.get('streamUrl'), item.get('pageUrl')]
+                    video_url = next((u for u in candidates if u and isinstance(u, str) and not u.strip().startswith('blob:')), '')
+                    page_url = item.get('pageUrl', '')
+                    if page_url and page_url.strip().startswith('blob:'):
+                        page_url = ''
+                    title = item.get('title') or f'批量影片 #{idx + 1}'
+                    client = item.get('client') or '品牌專題'
+
+                    task_id = f"task_{int(now)}_{idx + 1}"
+                    INGEST_TASKS[task_id] = {
+                        'id': task_id,
+                        'title': title,
+                        'client': client,
+                        'status': 'queued',
+                        'progress': '排隊中...',
+                        'time': now + (idx * 0.001),
+                        'shots': 0
+                    }
+                    task_ids.append(task_id)
+                    batch_jobs.append((task_id, video_url, title, client, page_url))
+                    trim_ingest_tasks()
+
+                def process_batch(jobs):
+                    print(f"[Batch Ingest] Worker started: processing {len(jobs)} videos sequentially")
+                    for t_id, v_url, t_title, t_client, p_url in jobs:
+                        try:
+                            run_ingest(t_id, v_url, t_title, t_client, p_url)
+                        except Exception as e:
+                            print(f"[Batch Ingest Error] Task {t_id} failed: {e}")
+                    print(f"[Batch Ingest] Completed all {len(jobs)} videos.")
+
+                if batch_jobs:
+                    threading.Thread(target=process_batch, args=(batch_jobs,), daemon=True).start()
+
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({
+                    'queued': len(task_ids),
+                    'taskIds': task_ids
+                }, ensure_ascii=False).encode('utf-8'))
+                return
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+                return
+
+        self.send_response(404)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.end_headers()
+        self.wfile.write(json.dumps({'error': 'Not found'}).encode('utf-8'))
+
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, X-CineShot-Token')
         super().end_headers()
 
 def run_server():
