@@ -229,7 +229,7 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
     api_key = get_gemini_api_key()
     if not api_key:
         print("\n[錯誤] 未讀取到 GEMINI_API_KEY，請檢查 .env 檔案")
-        return
+        return []
 
     # Video location
     dest_name = f"ad_{int(time.time())}.mp4"
@@ -248,6 +248,7 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
         for idx, shot in enumerate(shots, 1):
             print(f"  #{idx:02d} [{shot.get('timecode')}] {shot.get('actionTag')} ｜ {shot.get('motion')} ｜ 光影: {shot.get('lighting')} ({shot.get('mood')})")
         merge_shots_into_database(shots, relative_url, title, client)
+        return shots
     else:
         print("🛡️ [磁碟保護] 該影片未提取到有效鏡頭或被 AI 質檢員拒收，已自動清理磁碟空間。")
         if os.path.exists(dest_path) and dest_path != video_path:
@@ -255,6 +256,7 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
                 os.remove(dest_path)
             except Exception:
                 pass
+        return []
 
 def main():
     print("=" * 60)
