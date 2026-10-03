@@ -311,6 +311,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                 'streaming': 'Parallel Threading Enabled',
                 'clipsCount': clips_count,
                 'hasGeminiKey': bool(get_gemini_api_key()),
+                'hasFfmpeg': bool(shutil.which('ffmpeg')),
                 'activeTasks': len(INGEST_TASKS)
             }
             self.wfile.write(json.dumps(res).encode('utf-8'))
@@ -452,6 +453,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     del INGEST_TASKS[oldest_key]
 
                 def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
+                    print(f"[ingest] v_url={v_url[:100] if v_url else 'EMPTY'} page_url={page_url[:100] if page_url else 'EMPTY'}")
                     try:
                         clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
@@ -460,7 +462,8 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
                         v_url = v_url or ''
                         # Check if URL is Bilibili (bypass yt-dlp 412 bot check)
-                        bili_match = re.search(r'(BV[a-zA-Z0-9]+)', v_url or page_url)
+                        bili_match = (re.search(r'(BV[a-zA-Z0-9]+)', v_url or '')
+                                      or re.search(r'(BV[a-zA-Z0-9]+)', page_url or ''))
                         if bili_match:
                             try:
                                 bvid = bili_match.group(1)
