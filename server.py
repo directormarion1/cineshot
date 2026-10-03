@@ -318,6 +318,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
             try:
                 payload = json.loads(body.decode('utf-8'))
                 video_url = payload.get('videoUrl') or payload.get('streamUrl') or payload.get('pageUrl')
+                page_url = payload.get('pageUrl', '')
                 title = payload.get('title', '精選影視短片')
                 client = payload.get('client', '品牌專題')
 
@@ -336,18 +337,25 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     oldest_key = next(iter(INGEST_TASKS))
                     del INGEST_TASKS[oldest_key]
 
-                def run_ingest(t_id, v_url, v_title, v_client):
+                def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
                     try:
                         clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
                         out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
 
                         # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
-                        is_direct_stream = (
-                            'xpccdn.com' in v_url or 
-                            'vod.xinpianchang.com' in v_url or 
-                            v_url.split('?')[0].endswith('.mp4')
-                        )
+                        v_url = v_url or ''
+                        is_xpc_cdn = 'xpccdn.com' in v_url or 'vod.xinpianchang.com' in v_url
+                        if is_xpc_cdn and page_url and 'xinpianchang.com' in page_url:
+                            print(f"[XPC] CDN URL IP-bound, re-extracting via yt-dlp: {page_url[:80]}")
+                            v_url = page_url
+                            is_direct_stream = False
+                        else:
+                            is_direct_stream = (
+                                'xpccdn.com' in v_url or 
+                                'vod.xinpianchang.com' in v_url or 
+                                v_url.split('?')[0].endswith('.mp4')
+                            )
 
                         if is_direct_stream:
                             print(f"[Direct CDN Stream] Downloading from {v_url[:80]}...")
@@ -393,7 +401,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         INGEST_TASKS[t_id]['progress'] = f'收錄失敗: {str(e)}'
                         print(f"[API Ingest Error] {e}")
 
-                threading.Thread(target=run_ingest, args=(task_id, video_url, title, client), daemon=True).start()
+                threading.Thread(target=run_ingest, args=(task_id, video_url, title, client, page_url), daemon=True).start()
 
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/json; charset=utf-8')
