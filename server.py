@@ -684,7 +684,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, X-CineShot-Token')
         self.end_headers()
 
@@ -808,15 +808,87 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                 self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
                 return
 
+        if path == '/api/admin/clips':
+            return self.handle_delete_clips()
+
         self.send_response(404)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
         self.wfile.write(json.dumps({'error': 'Not found'}).encode('utf-8'))
 
+    def handle_delete_clips(self):
+        """Delete specific clips and their posters without deleting original video files"""
+        if not self.check_ingest_token():
+            return
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length) if length > 0 else b'{}'
+        try:
+            payload = json.loads(body.decode('utf-8'))
+            target_ids = set(payload.get('ids', []))
+            if not target_ids:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json; charset=utf-8')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': 'ids array required'}).encode('utf-8'))
+                return
+
+            deleted_ids = []
+            if os.path.exists(DATA_FILE):
+                with open(DATA_FILE, 'r', encoding='utf-8') as f:
+                    clips = json.load(f)
+
+                new_clips = []
+                for c in clips:
+                    if not isinstance(c, dict):
+                        continue
+                    cid = c.get('id')
+                    if cid in target_ids:
+                        deleted_ids.append(cid)
+                        # Remove poster if exists
+                        poster_path = os.path.join(POSTERS_DIR, f"{cid}.jpg")
+                        if os.path.exists(poster_path):
+                            try:
+                                os.remove(poster_path)
+                            except Exception as pe:
+                                print(f"[Delete Poster Warning] {pe}")
+                    else:
+                        new_clips.append(c)
+
+                with open(DATA_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(new_clips, f, ensure_ascii=False, indent=2)
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'deletedCount': len(deleted_ids),
+                'deletedIds': deleted_ids
+            }, ensure_ascii=False).encode('utf-8'))
+            return
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
+            return
+
+    def do_DELETE(self):
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path == '/api/admin/clips':
+            return self.handle_delete_clips()
+
+        self.send_response(404)
+        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.end_headers()
+        self.wfile.write(json.dumps({'error': 'Not found'}).encode('utf-8'))
+
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Range, Authorization, X-CineShot-Token')
         super().end_headers()
 
