@@ -811,6 +811,26 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         if path == '/api/admin/clips':
             return self.handle_delete_clips()
 
+        if path == '/api/admin/migrate_r2':
+            if not self.check_ingest_token():
+                return
+            from migrate_to_r2 import run_migration
+            def bg_migrate():
+                try:
+                    run_migration()
+                except Exception as me:
+                    print(f"[R2 Migration Error] {me}")
+
+            threading.Thread(target=bg_migrate, daemon=True).start()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json; charset=utf-8')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                'success': True,
+                'message': 'Cloudflare R2 遷移已在後台啟動，正在備份 clips.json 並將影片與封面同步至 R2'
+            }, ensure_ascii=False).encode('utf-8'))
+            return
+
         self.send_response(404)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -852,6 +872,12 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                                 os.remove(poster_path)
                             except Exception as pe:
                                 print(f"[Delete Poster Warning] {pe}")
+                        # Remove poster from R2 if present
+                        try:
+                            from r2_storage import delete_file_from_r2
+                            delete_file_from_r2(f"posters/{cid}.jpg")
+                        except Exception:
+                            pass
                     else:
                         new_clips.append(c)
 

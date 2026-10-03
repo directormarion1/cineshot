@@ -13,6 +13,7 @@ import urllib.error
 import mimetypes
 import shutil
 import subprocess
+from r2_storage import is_r2_configured, upload_file_to_r2
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
@@ -245,6 +246,16 @@ def merge_shots_into_database(new_shots, video_relative_url, title, client, dire
             poster_dest = os.path.join(POSTERS_DIR, poster_name)
             if generate_poster(video_full_path, start_time, poster_dest):
                 poster_url = f"/posters/{poster_name}"
+                # If R2 is configured, upload poster
+                if is_r2_configured():
+                    r2_poster_url = upload_file_to_r2(
+                        poster_dest,
+                        f"posters/{poster_name}",
+                        content_type="image/jpeg",
+                        cache_control="public, max-age=31536000, immutable"
+                    )
+                    if r2_poster_url:
+                        poster_url = r2_poster_url
 
         new_entry = {
             "id": clip_id,
@@ -293,10 +304,12 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
     
     video_path = os.path.abspath(video_path)
     if os.path.commonpath([video_path, VIDEOS_DIR]) == VIDEOS_DIR:
-        relative_url = f"/videos/{os.path.basename(video_path)}"
+        video_filename = os.path.basename(video_path)
+        relative_url = f"/videos/{video_filename}"
         actual_video_path = video_path
     else:
         shutil.copyfile(video_path, dest_path)
+        video_filename = dest_name
         relative_url = f"/videos/{dest_name}"
         actual_video_path = dest_path
 
@@ -310,6 +323,15 @@ def process_single_video(video_path, title="精選廣告", client="品牌客戶"
         print(f"\n✨ [AI 拉片大成功] Gemini 共提取出 {len(shots)} 個高價值微鏡頭：")
         for idx, shot in enumerate(shots, 1):
             print(f"  #{idx:02d} [{shot.get('timecode')}] {shot.get('actionTag')} ｜ {shot.get('motion')} ｜ 光影: {shot.get('lighting')} ({shot.get('mood')})")
+
+        # If R2 is configured, upload video to Cloudflare R2
+        if is_r2_configured():
+            print(f"[R2 上傳] 正在將影片上傳至 Cloudflare R2 ({video_filename})...")
+            r2_v_url = upload_file_to_r2(actual_video_path, f"videos/{video_filename}", content_type="video/mp4")
+            if r2_v_url:
+                print(f"[R2 上傳完成] 影片公開鏈接: {r2_v_url}")
+                relative_url = r2_v_url
+
         merge_shots_into_database(shots, relative_url, title, client, video_full_path=actual_video_path)
         return shots
     else:
