@@ -7,3 +7,4 @@ crawl_history.json
 tmp_*
 *.bak
 xpc_cookies.txt
+cineshot-extension/token.js

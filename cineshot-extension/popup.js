@@ -1,5 +1,3 @@
-const INGEST_TOKEN = ''; // Set to match INGEST_TOKEN on server if configured
-
 document.addEventListener('DOMContentLoaded', () => {
   const btnIngest = document.getElementById('btn-ingest');
   const btnOpen = document.getElementById('btn-open-cineshot');

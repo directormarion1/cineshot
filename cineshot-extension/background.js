@@ -3,9 +3,10 @@
  * Runs in extension privileged context, immune to webpage CSP/CORS.
  */
 
+importScripts('token.js');
+
 const PRIMARY_API = 'https://web-production-cafae.up.railway.app/api/ingest';
 const LOCAL_API = 'http://localhost:8765/api/ingest';
-const INGEST_TOKEN = ''; // Set to match INGEST_TOKEN on server if configured
 
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
@@ -26,10 +27,10 @@ async function handleIngest(payload) {
 
   var headers = {
     'Content-Type': 'application/json',
-    'X-CineShot-Token': INGEST_TOKEN
+    'X-CineShot-Token': typeof INGEST_TOKEN !== 'undefined' ? INGEST_TOKEN : ''
   };
 
-  // Try cloud API first
+  // 1. Try cloud API first
   try {
     var controller = new AbortController();
     var timeoutId = setTimeout(function() { controller.abort(); }, 15000);
@@ -46,12 +47,22 @@ async function handleIngest(payload) {
       var data = await resp.json();
       console.log('[CineShot BG] Cloud API OK:', data);
       return { success: true, message: data.message || '已成功送入 CineShot 雲端拉片隊列！' };
+    } else {
+      // Cloud returned non-2xx (e.g. 403 Forbidden). Do not fall back to local!
+      var errorDetail = '雲端伺服器拒絕 (HTTP ' + resp.status + ')';
+      try {
+        var errJson = await resp.json();
+        if (errJson && errJson.error) {
+          errorDetail += ' - ' + errJson.error;
+        }
+      } catch (parseErr) {}
+      return { success: false, error: errorDetail };
     }
   } catch (e) {
     console.warn('[CineShot BG] Cloud API failed, trying local:', e);
   }
 
-  // Fallback to local API
+  // 2. Fallback to local API (only when cloud fetch threw network exception)
   try {
     var respLocal = await fetch(LOCAL_API, {
       method: 'POST',
