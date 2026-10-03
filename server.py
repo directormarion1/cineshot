@@ -10,6 +10,7 @@ import json
 import shutil
 import mimetypes
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+import posixpath
 import urllib.parse
 import urllib.request
 import threading
@@ -19,9 +20,57 @@ import re
 PORT = int(os.environ.get('PORT', 8765))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
-DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
+
+# Persistent Volume Storage: Mount at /data on Railway
+if os.path.exists('/data') and os.access('/data', os.W_OK):
+    STORAGE_DIR = '/data'
+elif os.path.exists('/data'):
+    STORAGE_DIR = '/data'
+elif os.environ.get('DATA_DIR'):
+    STORAGE_DIR = os.environ.get('DATA_DIR')
+else:
+    STORAGE_DIR = os.path.join(BASE_DIR, 'public')
+
+if STORAGE_DIR == '/data' or os.environ.get('DATA_DIR'):
+    VIDEOS_DIR = os.path.join(STORAGE_DIR, 'videos')
+    DATA_FILE = os.path.join(STORAGE_DIR, 'clips.json')
+else:
+    VIDEOS_DIR = os.path.join(PUBLIC_DIR, 'videos')
+    DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
+
 INGEST_TOKEN = os.environ.get('INGEST_TOKEN', '')
 INGEST_TASKS = {}
+
+def init_storage():
+    """Ensure persistent volume is initialized and seed initial data if empty"""
+    os.makedirs(VIDEOS_DIR, exist_ok=True)
+
+    # 1. Seed clips.json if not present in persistent storage
+    src_clips = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
+    if not os.path.exists(DATA_FILE) and os.path.exists(src_clips):
+        try:
+            os.makedirs(os.path.dirname(DATA_FILE), exist_ok=True)
+            shutil.copyfile(src_clips, DATA_FILE)
+            print(f"[Volume Init] Copied initial clips.json to {DATA_FILE}")
+        except Exception as e:
+            print(f"[Volume Init Warning] Failed to copy clips.json: {e}")
+
+    # 2. Seed initial demo videos if persistent videos directory is empty
+    src_videos_dir = os.path.join(PUBLIC_DIR, 'videos')
+    if os.path.exists(src_videos_dir) and os.path.abspath(src_videos_dir) != os.path.abspath(VIDEOS_DIR):
+        try:
+            existing_videos = [f for f in os.listdir(VIDEOS_DIR) if not f.startswith('.')]
+            if not existing_videos:
+                for fname in os.listdir(src_videos_dir):
+                    s_file = os.path.join(src_videos_dir, fname)
+                    d_file = os.path.join(VIDEOS_DIR, fname)
+                    if os.path.isfile(s_file):
+                        shutil.copyfile(s_file, d_file)
+                print(f"[Volume Init] Seeded initial demo videos from {src_videos_dir} into {VIDEOS_DIR}")
+            else:
+                print(f"[Volume Init] Persistent storage already contains {len(existing_videos)} videos.")
+        except Exception as e:
+            print(f"[Volume Init Warning] Failed to seed demo videos: {e}")
 
 class RangeFileWrapper:
     """Wrapper that limits reads to a specific byte length for HTTP 206 Partial Content"""
@@ -44,6 +93,24 @@ class RangeFileWrapper:
 class CineShotHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=PUBLIC_DIR, **kwargs)
+
+    def translate_path(self, path):
+        parsed = urllib.parse.urlparse(path)
+        clean_path = posixpath.normpath(urllib.parse.unquote(parsed.path))
+
+        # Route /videos/ to VIDEOS_DIR (persistent volume)
+        if clean_path.startswith('/videos'):
+            rel = clean_path[len('/videos'):].lstrip('/')
+            safe_path = os.path.abspath(os.path.join(VIDEOS_DIR, rel))
+            if safe_path.startswith(os.path.abspath(VIDEOS_DIR)):
+                return safe_path
+            return ""
+
+        # Route /data/clips.json to DATA_FILE (persistent volume)
+        if clean_path == '/data/clips.json':
+            return DATA_FILE
+
+        return super().translate_path(path)
 
     def check_ingest_token(self):
         """Verify request token against INGEST_TOKEN environment variable"""
@@ -168,7 +235,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         path = parsed.path
 
         # API: Return all clips
-        if path == '/api/clips':
+        if path == '/api/clips' or path == '/data/clips.json':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -230,7 +297,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                         import yt_dlp, time
                         clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
-                        out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
+                        out_path = os.path.join(VIDEOS_DIR, out_filename)
                         ydl_opts = {
                             'format': 'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/18/best',
                             'outtmpl': out_path,
@@ -341,7 +408,7 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                     try:
                         clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
                         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
-                        out_path = os.path.join(PUBLIC_DIR, 'videos', out_filename)
+                        out_path = os.path.join(VIDEOS_DIR, out_filename)
 
                         # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
                         v_url = v_url or ''
@@ -428,11 +495,13 @@ class CineShotHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
 def run_server():
+    init_storage()
     server_address = ('', PORT)
     httpd = ThreadingHTTPServer(server_address, CineShotHandler)
     print("=" * 60)
     print(f"🎬 CineShot (影鏡) - 乾淨極簡搜尋首頁與視聽語言檢索台已就緒！(多線程模式)")
     print(f"👉 請在瀏覽器打開：http://localhost:{PORT}")
+    print(f"📁 存儲配置: VIDEOS_DIR={VIDEOS_DIR} | DATA_FILE={DATA_FILE}")
     if not INGEST_TOKEN:
         print("⚠️  警告：未配置 INGEST_TOKEN 環境變數，/api/ingest 與 /import 處於免鑑權模式！生產環境請務必設定 INGEST_TOKEN。")
     print("=" * 60)

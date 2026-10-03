@@ -14,8 +14,25 @@ import mimetypes
 import shutil
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_FILE = os.path.join(BASE_DIR, 'public', 'data', 'clips.json')
-VIDEOS_DIR = os.path.join(BASE_DIR, 'public', 'videos')
+PUBLIC_DIR = os.path.join(BASE_DIR, 'public')
+
+# Persistent Volume Storage: Mount at /data on Railway
+if os.path.exists('/data') and os.access('/data', os.W_OK):
+    STORAGE_DIR = '/data'
+elif os.path.exists('/data'):
+    STORAGE_DIR = '/data'
+elif os.environ.get('DATA_DIR'):
+    STORAGE_DIR = os.environ.get('DATA_DIR')
+else:
+    STORAGE_DIR = os.path.join(BASE_DIR, 'public')
+
+if STORAGE_DIR == '/data' or os.environ.get('DATA_DIR'):
+    VIDEOS_DIR = os.path.join(STORAGE_DIR, 'videos')
+    DATA_FILE = os.path.join(STORAGE_DIR, 'clips.json')
+else:
+    VIDEOS_DIR = os.path.join(PUBLIC_DIR, 'videos')
+    DATA_FILE = os.path.join(PUBLIC_DIR, 'data', 'clips.json')
+
 TEMP_DIR = os.path.join(BASE_DIR, 'tmp_downloads')
 
 os.makedirs(VIDEOS_DIR, exist_ok=True)
