@@ -16,6 +16,8 @@ import urllib.request
 import threading
 import time
 import re
+import socket
+import ipaddress
 
 PORT = int(os.environ.get('PORT', 8765))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -125,15 +127,55 @@ def trim_ingest_tasks():
             oldest_key = next(iter(INGEST_TASKS))
             del INGEST_TASKS[oldest_key]
 
+def check_ssrf_safety(url_str):
+    """Validate URL to prevent SSRF against loopback, private networks and metadata services"""
+    if not url_str or not isinstance(url_str, str):
+        return
+    parsed = urllib.parse.urlparse(url_str)
+    hostname = parsed.hostname
+    if not hostname:
+        return
+    hostname_lower = hostname.lower().strip()
+
+    # Explicit blacklist
+    blacklist = {'169.254.169.254', 'localhost', 'metadata.google.internal'}
+    if hostname_lower in blacklist or hostname_lower.endswith('.internal'):
+        raise Exception(f"SSRF 攔截: 禁止訪問受限目標 ({hostname})")
+
+    try:
+        fake_ip_net = ipaddress.ip_network('198.18.0.0/15')
+        addr_infos = socket.getaddrinfo(hostname_lower, None)
+        for entry in addr_infos:
+            ip_str = entry[4][0]
+            ip = ipaddress.ip_address(ip_str)
+            # Skip RFC 2544 benchmark pool (198.18.0.0/15) which is standard Fake-IP in Clash/Surge TUN proxy
+            if ip in fake_ip_net:
+                continue
+            if ip.is_private or ip.is_loopback:
+                raise Exception(f"SSRF 攔截: 解析位址 {ip_str} 屬於內部/私有網路 ({hostname})")
+    except socket.gaierror:
+        try:
+            ip = ipaddress.ip_address(hostname_lower)
+            if ip.is_private or ip.is_loopback:
+                raise Exception(f"SSRF 攔截: 禁止訪問私有/內部 IP ({hostname})")
+        except ValueError:
+            pass
+
 def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
     print(f"[ingest] v_url={v_url[:100] if v_url else 'EMPTY'} page_url={page_url[:100] if page_url else 'EMPTY'}")
     if not v_url and page_url:
         v_url = page_url
 
+    # SSRF verification
+    for check_u in (v_url, page_url):
+        if check_u:
+            check_ssrf_safety(check_u)
+
     if t_id in INGEST_TASKS:
         INGEST_TASKS[t_id]['status'] = 'downloading'
         INGEST_TASKS[t_id]['progress'] = '正在下載影片串流...'
 
+    out_path = ""
     try:
         clean_slug = re.sub(r'[\s\\/:*?"<>|]', '_', v_title)[:30]
         out_filename = f"ad_{int(time.time())}_{clean_slug}.mp4"
@@ -151,6 +193,7 @@ def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
                 bvid = bili_match.group(1)
                 print(f"[Bilibili Native] Resolving {bvid} via official playurl API...")
                 s_url, b_title, b_owner = get_bilibili_stream(bvid)
+                check_ssrf_safety(s_url)
                 v_url = s_url
                 if not v_title or v_title == '精選影視短片':
                     v_title = b_title
@@ -189,8 +232,34 @@ def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
                     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 }
             )
-            with urllib.request.urlopen(req, timeout=120) as resp, open(out_path, 'wb') as out_f:
-                shutil.copyfileobj(resp, out_f)
+            max_bytes = 500 * 1024 * 1024  # 500MB limit
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                content_len = resp.headers.get('Content-Length')
+                if content_len:
+                    try:
+                        if int(content_len) > max_bytes:
+                            raise Exception(f"檔案過大 ({int(content_len) / (1024 * 1024):.1f}MB)，超出 500MB 上限限制")
+                    except ValueError:
+                        pass
+
+                downloaded = 0
+                try:
+                    with open(out_path, 'wb') as out_f:
+                        while True:
+                            chunk = resp.read(1024 * 1024)
+                            if not chunk:
+                                break
+                            downloaded += len(chunk)
+                            if downloaded > max_bytes:
+                                raise Exception(f"下載數據已超出 500MB 上限限制 (已接收 {downloaded / (1024 * 1024):.1f}MB)")
+                            out_f.write(chunk)
+                except Exception:
+                    if os.path.exists(out_path):
+                        try:
+                            os.remove(out_path)
+                        except Exception:
+                            pass
+                    raise
             print(f"[Direct CDN Stream] Download complete: {out_filename}")
         else:
             # YouTube, Bilibili, Vimeo, etc.
@@ -200,9 +269,23 @@ def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
                 'outtmpl': out_path,
                 'quiet': True,
                 'no_warnings': True,
+                'max_filesize': 500 * 1024 * 1024,
                 'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(v_url, download=False)
+                if info:
+                    duration = None
+                    if 'duration' in info and info['duration'] is not None:
+                        duration = info['duration']
+                    elif 'entries' in info and info['entries']:
+                        first_entry = info['entries'][0]
+                        if isinstance(first_entry, dict):
+                            duration = first_entry.get('duration')
+
+                    if duration is not None:
+                        if duration < 10 or duration > 300:
+                            raise Exception(f"影片時長 {duration} 秒不在允許範圍內 (限制 10-300 秒)")
                 ydl.download([v_url])
 
         # AI Analysis
@@ -220,6 +303,11 @@ def run_ingest(t_id, v_url, v_title, v_client, page_url=''):
         print(f"[Ingest Success] {v_title} -> {len(shots) if shots else 0} shots")
 
     except Exception as e:
+        if out_path and os.path.exists(out_path):
+            try:
+                os.remove(out_path)
+            except Exception:
+                pass
         if t_id in INGEST_TASKS:
             INGEST_TASKS[t_id]['status'] = 'error'
             INGEST_TASKS[t_id]['progress'] = f'收錄失敗: {str(e)}'
@@ -428,6 +516,8 @@ class CineShotHandler(SimpleHTTPRequestHandler):
 
         # API: Real-time Ingestion Task Status
         if path == '/api/tasks':
+            if not self.check_ingest_token():
+                return
             self.send_response(200)
             self.send_header('Content-Type', 'application/json; charset=utf-8')
             self.send_header('Access-Control-Allow-Origin', '*')
