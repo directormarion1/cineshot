@@ -88,6 +88,34 @@ def init_storage():
         except Exception as e:
             print(f"[Volume Init Warning] Failed to incrementally sync videos: {e}")
 
+def get_bilibili_stream(bvid):
+    """Fetch high-quality direct mp4 stream for Bilibili videos via official player API"""
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Referer': 'https://www.bilibili.com/'
+    }
+    view_url = f'https://api.bilibili.com/x/web-interface/view?bvid={bvid}'
+    req = urllib.request.Request(view_url, headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        v_data = json.loads(resp.read().decode('utf-8'))
+        if v_data.get('code') != 0:
+            raise Exception(f"Bilibili view API: {v_data.get('message')}")
+        cid = v_data['data']['cid']
+        title = v_data['data'].get('title', 'B站精選短片')
+        owner = v_data['data'].get('owner', {}).get('name', 'B站創作者')
+
+    play_url = f'https://api.bilibili.com/x/player/playurl?bvid={bvid}&cid={cid}&qn=64&fnval=1'
+    req2 = urllib.request.Request(play_url, headers=headers)
+    with urllib.request.urlopen(req2, timeout=30) as resp:
+        p_data = json.loads(resp.read().decode('utf-8'))
+        if p_data.get('code') != 0:
+            raise Exception(f"Bilibili playurl API: {p_data.get('message')}")
+        durl = p_data['data'].get('durl', [])
+        if not durl:
+            raise Exception("No direct stream URL returned by Bilibili")
+        stream_url = durl[0]['url']
+    return stream_url, title, owner
+
 class RangeFileWrapper:
     """Wrapper that limits reads to a specific byte length for HTTP 206 Partial Content"""
     def __init__(self, file_obj, length):
@@ -431,8 +459,23 @@ class CineShotHandler(SimpleHTTPRequestHandler):
 
                         # Check if v_url is a direct CDN video stream (e.g. Xinpianchang oss-xpc0 / mp4)
                         v_url = v_url or ''
-                        is_xpc_cdn = 'xpccdn.com' in v_url or 'vod.xinpianchang.com' in v_url
-                        if is_xpc_cdn and page_url and 'xinpianchang.com' in page_url:
+                        # Check if URL is Bilibili (bypass yt-dlp 412 bot check)
+                        bili_match = re.search(r'(BV[a-zA-Z0-9]+)', v_url or page_url)
+                        if bili_match:
+                            try:
+                                bvid = bili_match.group(1)
+                                print(f"[Bilibili Native] Resolving {bvid} via official playurl API...")
+                                s_url, b_title, b_owner = get_bilibili_stream(bvid)
+                                v_url = s_url
+                                if not v_title or v_title == '精選影視短片':
+                                    v_title = b_title
+                                if not v_client or v_client == '品牌專題':
+                                    v_client = b_owner
+                                is_direct_stream = True
+                            except Exception as e:
+                                print(f"[Bilibili Native Error] {e}")
+                                is_direct_stream = False
+                        elif is_xpc_cdn and page_url and 'xinpianchang.com' in page_url:
                             print(f"[XPC] CDN URL IP-bound, re-extracting via yt-dlp: {page_url[:80]}")
                             v_url = page_url
                             is_direct_stream = False
@@ -440,16 +483,18 @@ class CineShotHandler(SimpleHTTPRequestHandler):
                             is_direct_stream = (
                                 'xpccdn.com' in v_url or 
                                 'vod.xinpianchang.com' in v_url or 
+                                'bilivideo.com' in v_url or
                                 v_url.split('?')[0].endswith('.mp4')
                             )
 
                         if is_direct_stream:
+                            referer = 'https://www.bilibili.com/' if ('bilivideo.com' in v_url or 'bilibili.com' in v_url) else 'https://www.xinpianchang.com/'
                             print(f"[Direct CDN Stream] Downloading from {v_url[:80]}...")
                             req = urllib.request.Request(
                                 v_url, 
                                 headers={
                                     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                                    'Referer': 'https://www.xinpianchang.com/',
+                                    'Referer': referer,
                                     'Accept': '*/*',
                                     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                                 }
